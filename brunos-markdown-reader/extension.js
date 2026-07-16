@@ -116,6 +116,7 @@ class MarkdownEditorProvider {
     background: var(--vscode-editor-background, #1e1e1e);
     overflow: hidden;
   }
+  .mermaid-modal.panning { cursor: grabbing; }
   .mermaid-stage { position: absolute; top: 0; left: 0; transform-origin: 0 0; }
   .mermaid-stage svg { max-width: none !important; height: auto; display: block; }
   .mermaid-toolbar {
@@ -203,7 +204,7 @@ ${body}
 
     const hint = document.createElement('div');
     hint.className = 'mermaid-hint';
-    hint.textContent = 'Scroll pra mover · ⌘/Ctrl+scroll pra zoom · Esc fecha';
+    hint.textContent = 'Botão do meio (segurar) arrasta pra mover · scroll pra zoom · Esc fecha';
     modal.appendChild(hint);
 
     document.body.appendChild(modal);
@@ -236,21 +237,38 @@ ${body}
     mk('⤢', 'Ajustar à tela', fit);
     mk('✕', 'Fechar (Esc)', close);
 
-    // scroll = pan · ⌘/Ctrl+scroll = zoom (mouse fica livre pra selecionar texto)
+    // scroll (rodinha) = zoom centrado no cursor
     modal.addEventListener('wheel', (e) => {
       e.preventDefault();
-      if (e.ctrlKey || e.metaKey) {
-        const r = modal.getBoundingClientRect();
-        zoomAt(e.clientX - r.left, e.clientY - r.top, e.deltaY < 0 ? 1.12 : 1 / 1.12);
-      } else {
-        tx -= e.deltaX; ty -= e.deltaY; applyT();
-      }
+      const r = modal.getBoundingClientRect();
+      zoomAt(e.clientX - r.left, e.clientY - r.top, e.deltaY < 0 ? 1.12 : 1 / 1.12);
     }, { passive: false });
+
+    // botão do meio (rodinha) segurar + arrastar = pan · botão esquerdo fica livre pra selecionar
+    let dragging = false, lx = 0, ly = 0;
+    modal.addEventListener('mousedown', (e) => {
+      if (e.button !== 1) return;
+      if (e.target.closest('.mermaid-toolbar')) return;
+      e.preventDefault();
+      dragging = true; lx = e.clientX; ly = e.clientY;
+      modal.classList.add('panning');
+    });
+    modal.addEventListener('auxclick', (e) => { if (e.button === 1) e.preventDefault(); });
+    window.addEventListener('mousemove', onMove);
+    function onMove(e) {
+      if (!dragging) return;
+      tx += e.clientX - lx; ty += e.clientY - ly;
+      lx = e.clientX; ly = e.clientY; applyT();
+    }
+    window.addEventListener('mouseup', onUp);
+    function onUp() { if (dragging) { dragging = false; modal.classList.remove('panning'); } }
 
     function onKey(e) { if (e.key === 'Escape') close(); }
     window.addEventListener('keydown', onKey);
 
     function close() {
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
       window.removeEventListener('keydown', onKey);
       modal.remove();
       modalOpen = false;
