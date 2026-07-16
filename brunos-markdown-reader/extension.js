@@ -114,9 +114,8 @@ class MarkdownEditorProvider {
   .mermaid-modal {
     position: fixed; inset: 0; z-index: 9999;
     background: var(--vscode-editor-background, #1e1e1e);
-    overflow: hidden; cursor: grab;
+    overflow: hidden;
   }
-  .mermaid-modal.grabbing { cursor: grabbing; }
   .mermaid-stage { position: absolute; top: 0; left: 0; transform-origin: 0 0; }
   .mermaid-stage svg { max-width: none !important; height: auto; display: block; }
   .mermaid-toolbar {
@@ -204,7 +203,7 @@ ${body}
 
     const hint = document.createElement('div');
     hint.className = 'mermaid-hint';
-    hint.textContent = 'Arraste pra mover · scroll pra zoom · duplo-clique reseta · Esc fecha';
+    hint.textContent = 'Scroll pra mover · ⌘/Ctrl+scroll pra zoom · Esc fecha';
     modal.appendChild(hint);
 
     document.body.appendChild(modal);
@@ -237,35 +236,21 @@ ${body}
     mk('⤢', 'Ajustar à tela', fit);
     mk('✕', 'Fechar (Esc)', close);
 
+    // scroll = pan · ⌘/Ctrl+scroll = zoom (mouse fica livre pra selecionar texto)
     modal.addEventListener('wheel', (e) => {
       e.preventDefault();
-      const r = modal.getBoundingClientRect();
-      zoomAt(e.clientX - r.left, e.clientY - r.top, e.deltaY < 0 ? 1.12 : 1 / 1.12);
+      if (e.ctrlKey || e.metaKey) {
+        const r = modal.getBoundingClientRect();
+        zoomAt(e.clientX - r.left, e.clientY - r.top, e.deltaY < 0 ? 1.12 : 1 / 1.12);
+      } else {
+        tx -= e.deltaX; ty -= e.deltaY; applyT();
+      }
     }, { passive: false });
-
-    let dragging = false, lx = 0, ly = 0;
-    modal.addEventListener('mousedown', (e) => {
-      if (e.target.closest('.mermaid-toolbar')) return;
-      dragging = true; lx = e.clientX; ly = e.clientY;
-      modal.classList.add('grabbing');
-    });
-    window.addEventListener('mousemove', onMove);
-    function onMove(e) {
-      if (!dragging) return;
-      tx += e.clientX - lx; ty += e.clientY - ly;
-      lx = e.clientX; ly = e.clientY; applyT();
-    }
-    window.addEventListener('mouseup', onUp);
-    function onUp() { dragging = false; modal.classList.remove('grabbing'); }
-
-    modal.addEventListener('dblclick', (e) => { e.stopPropagation(); fit(); });
 
     function onKey(e) { if (e.key === 'Escape') close(); }
     window.addEventListener('keydown', onKey);
 
     function close() {
-      window.removeEventListener('mousemove', onMove);
-      window.removeEventListener('mouseup', onUp);
       window.removeEventListener('keydown', onKey);
       modal.remove();
       modalOpen = false;
