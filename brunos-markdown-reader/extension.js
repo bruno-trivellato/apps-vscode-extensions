@@ -95,17 +95,20 @@ class MarkdownEditorProvider {
   img { max-width: 100%; }
 
   /* wrapper + botão de expandir no hover do diagrama */
-  .mermaid-wrap { position: relative; display: inline-block; max-width: 100%; }
+  .mermaid-wrap { position: relative; display: block; text-align: center; margin: 1em 0; }
+  .mermaid-wrap svg { width: 100%; max-width: 100% !important; height: auto; }
   .mermaid-wrap .expand-btn {
     position: absolute; top: 8px; right: 8px;
-    opacity: 0; transition: opacity .15s;
-    background: var(--vscode-button-background, #0e639c);
-    color: var(--vscode-button-foreground, #fff);
-    border: none; border-radius: 6px; cursor: pointer;
-    padding: 4px 8px; font-size: 13px; line-height: 1;
+    opacity: 0; transition: opacity .15s, background .15s;
+    width: 26px; height: 26px; padding: 0;
+    display: flex; align-items: center; justify-content: center;
+    background: color-mix(in srgb, var(--vscode-editor-foreground, #888) 12%, transparent);
+    color: var(--vscode-editor-foreground, #ccc);
+    border: none; border-radius: 5px; cursor: pointer;
+    font-size: 14px; line-height: 1;
   }
-  .mermaid-wrap:hover .expand-btn { opacity: .95; }
-  .mermaid-wrap .expand-btn:hover { opacity: 1; }
+  .mermaid-wrap:hover .expand-btn { opacity: .55; }
+  .mermaid-wrap .expand-btn:hover { opacity: 1; background: color-mix(in srgb, var(--vscode-editor-foreground, #888) 22%, transparent); }
 
   /* modal fullscreen com pan/zoom */
   .mermaid-modal {
@@ -167,7 +170,7 @@ ${body}
       const btn = document.createElement('button');
       btn.className = 'expand-btn';
       btn.title = 'Abrir em tela cheia (pan + zoom)';
-      btn.textContent = '⛶ Fullscreen';
+      btn.textContent = '⛶';
       btn.addEventListener('click', (ev) => {
         ev.stopPropagation();
         const svg = el.querySelector('svg');
