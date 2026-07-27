@@ -1,0 +1,7 @@
+.vscode/**
+.gitignore
+publish.sh
+sample.md
+*.vsix
+package-lock.json
+**/*.map

@@ -3,7 +3,7 @@
   "displayName": "Bruno's Markdown Reader",
   "description": "Abre arquivos Markdown já renderizados, com suporte a diagramas mermaid.",
   "version": "0.0.1",
-  "publisher": "bruno",
+  "publisher": "brunotrivellato",
   "engines": {
     "vscode": "^1.75.0"
   },
@@ -11,7 +11,8 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://example.local/bruno/md-preview-ext"
+    "url": "https://github.com/bruno-trivellato/apps-vscode-extensions",
+    "directory": "brunos-markdown-reader"
   },
   "activationEvents": [],
   "main": "./extension.js",
