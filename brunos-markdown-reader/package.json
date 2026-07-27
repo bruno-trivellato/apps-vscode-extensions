@@ -2,7 +2,7 @@
   "name": "brunos-markdown-reader",
   "displayName": "Bruno's Markdown Reader",
   "description": "Opens Markdown files pre-rendered (reading mode), with mermaid diagram support.",
-  "version": "0.0.2",
+  "version": "0.0.12",
   "publisher": "brunotrivellato",
   "engines": {
     "vscode": "^1.75.0"
@@ -28,9 +28,47 @@
         ],
         "priority": "default"
       }
-    ]
+    ],
+    "commands": [
+      { "command": "brunosMarkdownReader.openLink", "title": "Open" },
+      { "command": "brunosMarkdownReader.openLinkToSide", "title": "Open to the Side" },
+      { "command": "brunosMarkdownReader.copyLinkPath", "title": "Copy Link Path" },
+      { "command": "brunosMarkdownReader.escapeToPreview", "title": "Back to Preview (Bruno's Markdown Reader)" }
+    ],
+    "keybindings": [
+      {
+        "command": "brunosMarkdownReader.escapeToPreview",
+        "key": "escape",
+        "when": "brunosMarkdownReader.canEscapeToPreview && editorTextFocus && editorLangId == markdown && !editorReadonly && !editorHasSelection && !editorHasMultipleSelections && !suggestWidgetVisible && !inlineSuggestionVisible && !parameterHintsVisible && !renameInputVisible && !findWidgetVisible && !referenceSearchVisible && !inSnippetMode"
+      }
+    ],
+    "menus": {
+      "webview/context": [
+        {
+          "command": "brunosMarkdownReader.openLink",
+          "when": "webviewSection == 'link'",
+          "group": "navigation@1"
+        },
+        {
+          "command": "brunosMarkdownReader.openLinkToSide",
+          "when": "webviewSection == 'link'",
+          "group": "navigation@2"
+        },
+        {
+          "command": "brunosMarkdownReader.copyLinkPath",
+          "when": "webviewSection == 'link'",
+          "group": "9_cutcopypaste@1"
+        }
+      ]
+    }
+  },
+  "scripts": {
+    "test": "mocha"
   },
   "dependencies": {
     "markdown-it": "^14.1.0"
+  },
+  "devDependencies": {
+    "mocha": "^11.1.0"
   }
 }

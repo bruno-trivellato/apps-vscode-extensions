@@ -3,5 +3,7 @@
 publish.sh
 sample.md
 *.vsix
+test/**
+.mocharc.json
 package-lock.json
 **/*.map
