@@ -13,11 +13,16 @@ set -euo pipefail
 cd "$(dirname "$0")"
 
 if [[ -z "${VSCE_PAT:-}" ]]; then
-  # Prompt securely — input is hidden and never echoed or stored on disk.
+  # Try macOS Keychain (see README for how to store it once).
+  VSCE_PAT=$(security find-generic-password -s vsce-pat -w 2>/dev/null || true)
+fi
+
+if [[ -z "${VSCE_PAT:-}" ]]; then
+  # Fall back to a secure prompt — input is hidden, never echoed or stored on disk.
   read -r -s -p "Paste your Azure DevOps PAT (Marketplace > Manage): " VSCE_PAT
   echo
-  export VSCE_PAT
 fi
+export VSCE_PAT
 
 if [[ -z "${VSCE_PAT:-}" || "$VSCE_PAT" == "paste-your-token-here" ]]; then
   echo "ERROR: no real token provided." >&2

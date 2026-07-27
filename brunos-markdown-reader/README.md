@@ -28,4 +28,4 @@ To open rendered on click, VSCode user settings needs:
 
 - Registered as a `customEditors` contribution (`priority: default`, selector `*.md`).
 - `media/mermaid.min.js` is vendored because the webview CSP blocks external CDNs — it must be committed.
-- Uninstall: `code --uninstall-extension bruno.brunos-markdown-reader`
+- Uninstall: `code --uninstall-extension brunotrivellato.brunos-markdown-reader`

@@ -3,8 +3,8 @@ const MarkdownIt = require("markdown-it");
 
 const md = new MarkdownIt({ html: true, linkify: true, typographer: true });
 
-// Faz os blocos ```mermaid virarem <pre class="mermaid"> (que o mermaid.js renderiza),
-// em vez de <pre><code class="language-mermaid">.
+// Turn ```mermaid blocks into <pre class="mermaid"> (which mermaid.js renders),
+// instead of <pre><code class="language-mermaid">.
 const defaultFence =
   md.renderer.rules.fence ||
   function (tokens, idx, options, env, self) {
@@ -20,7 +20,7 @@ md.renderer.rules.fence = function (tokens, idx, options, env, self) {
 };
 
 /**
- * Custom editor que renderiza o .md direto (no lugar do texto cru), com mermaid.
+ * Custom editor that renders the .md directly (instead of the raw text), with mermaid.
  */
 class MarkdownEditorProvider {
   constructor(context) {
@@ -47,7 +47,7 @@ class MarkdownEditorProvider {
       }
     });
 
-    // duplo-clique na página → reabre o arquivo no editor de texto (modo edição)
+    // double-click on the page → reopen the file in the text editor (edit mode)
     const msgSub = webview.onDidReceiveMessage((msg) => {
       if (msg && msg.type === "edit") {
         vscode.commands.executeCommand("vscode.openWith", document.uri, "default");
@@ -64,7 +64,7 @@ class MarkdownEditorProvider {
     const body = md.render(source);
     const cspSource = webview.cspSource;
     return `<!DOCTYPE html>
-<html lang="pt-br">
+<html lang="en">
 <head>
 <meta charset="UTF-8">
 <meta http-equiv="Content-Security-Policy"
@@ -94,7 +94,7 @@ class MarkdownEditorProvider {
   a { color: var(--vscode-textLink-foreground); }
   img { max-width: 100%; }
 
-  /* wrapper + botão de expandir no hover do diagrama */
+  /* wrapper + expand button shown on diagram hover */
   .mermaid-wrap { position: relative; display: block; text-align: center; margin: 1em 0; }
   .mermaid-wrap svg { width: 100%; max-width: 100% !important; height: auto; }
   .mermaid-wrap .expand-btn {
@@ -151,15 +151,15 @@ ${body}
 
   let modalOpen = false;
 
-  // duplo-clique na página (fora de diagrama/link/modal) → volta pro editor de texto
+  // double-click on the page (outside a diagram/link/modal) → back to the text editor
   document.addEventListener('dblclick', (e) => {
     if (modalOpen) return;
     if (e.target.closest('a')) return;
-    if (e.target.closest('.mermaid-wrap')) return; // diagramas são interativos
+    if (e.target.closest('.mermaid-wrap')) return; // diagrams are interactive
     vscodeApi.postMessage({ type: 'edit' });
   });
 
-  // adiciona o botão de expandir em cada diagrama já renderizado
+  // add the expand button to each already-rendered diagram
   function decorate() {
     document.querySelectorAll('pre.mermaid[data-processed="true"]').forEach((el) => {
       if (el.parentElement.classList.contains('mermaid-wrap')) return;
@@ -169,7 +169,7 @@ ${body}
       wrap.appendChild(el);
       const btn = document.createElement('button');
       btn.className = 'expand-btn';
-      btn.title = 'Abrir em tela cheia (pan + zoom)';
+      btn.title = 'Open fullscreen (pan + zoom)';
       btn.textContent = '⛶';
       btn.addEventListener('click', (ev) => {
         ev.stopPropagation();
@@ -204,7 +204,7 @@ ${body}
 
     const hint = document.createElement('div');
     hint.className = 'mermaid-hint';
-    hint.textContent = 'Botão do meio (segurar) arrasta pra mover · scroll pra zoom · Esc fecha';
+    hint.textContent = 'Middle button (hold) to pan · scroll to zoom · Esc to close';
     modal.appendChild(hint);
 
     document.body.appendChild(modal);
@@ -234,17 +234,17 @@ ${body}
 
     mk('+', 'Zoom in', () => { const r = modal.getBoundingClientRect(); zoomAt(r.width / 2, r.height / 2, 1.25); });
     mk('−', 'Zoom out', () => { const r = modal.getBoundingClientRect(); zoomAt(r.width / 2, r.height / 2, 0.8); });
-    mk('⤢', 'Ajustar à tela', fit);
+    mk('⤢', 'Fit to screen', fit);
     mk('✕', 'Fechar (Esc)', close);
 
-    // scroll (rodinha) = zoom centrado no cursor
+    // scroll wheel = zoom centered on the cursor
     modal.addEventListener('wheel', (e) => {
       e.preventDefault();
       const r = modal.getBoundingClientRect();
       zoomAt(e.clientX - r.left, e.clientY - r.top, e.deltaY < 0 ? 1.12 : 1 / 1.12);
     }, { passive: false });
 
-    // botão do meio (rodinha) segurar + arrastar = pan · botão esquerdo fica livre pra selecionar
+    // middle button (wheel) hold + drag = pan · left button stays free to select
     let dragging = false, lx = 0, ly = 0;
     modal.addEventListener('mousedown', (e) => {
       if (e.button !== 1) return;
@@ -280,10 +280,10 @@ ${body}
   try {
     mermaid.initialize({ startOnLoad: false, theme: isDark ? 'dark' : 'default' });
     mermaid.run({ querySelector: 'pre.mermaid' }).then(decorate).catch((e) => {
-      console.error('mermaid run falhou', e);
+      console.error('mermaid run failed', e);
     });
   } catch (e) {
-    console.error('mermaid init falhou', e);
+    console.error('mermaid init failed', e);
   }
 </script>
 </body>
