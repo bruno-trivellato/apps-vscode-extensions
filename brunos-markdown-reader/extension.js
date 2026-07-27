@@ -220,11 +220,7 @@ class MarkdownEditorProvider {
       `<div class="git-summary">` +
       `<span class="git-icon">📝</span>` +
       `<span>Updated ${esc(relTime(last.date))} by <strong>${esc(last.author)}</strong></span>` +
-      `<span class="git-hash" data-hash="${esc(last.hash)}" title="Show changes in this commit">${esc(
-        last.shortHash
-      )}</span>` +
       `<span class="git-subject-inline">${esc(last.subject)}</span>` +
-      `<span class="git-repo" title="${esc(git.remote)}">${esc(git.repoName)}</span>` +
       `<button class="git-toggle" id="git-toggle" title="Toggle file history">History ▾</button>` +
       `</div>` +
       `<div class="git-history" id="git-history" hidden>${rows}</div>` +
