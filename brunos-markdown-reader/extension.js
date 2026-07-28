@@ -1,5 +1,6 @@
 const vscode = require("vscode");
 const path = require("path");
+const fs = require("fs");
 const { execFile } = require("child_process");
 const MarkdownIt = require("markdown-it");
 const { resolveTarget, relTime, parseGitLog } = require("./lib/util");
@@ -89,6 +90,106 @@ function getConfig() {
     editMode: c.get("editMode", false),
   };
 }
+
+// ---- link hover tooltip -----------------------------------------------------
+// Shared by the reader and edit mode. They locate links differently, so each
+// passes its own `linkAt(target)`, but the tooltip itself behaves the same.
+
+const LINK_TOOLTIP_CSS = `
+  .bmr-tip {
+    position: fixed; z-index: 9998;
+    max-width: min(70vw, 640px);
+    padding: 6px 9px; border-radius: 6px;
+    font-size: 11.5px; line-height: 1.45;
+    font-family: "SF Mono", Menlo, Consolas, monospace;
+    color: var(--vscode-editorHoverWidget-foreground, var(--vscode-editor-foreground, #ccc));
+    background: var(--vscode-editorHoverWidget-background, var(--vscode-editorWidget-background, #252526));
+    border: 1px solid var(--vscode-editorHoverWidget-border, var(--vscode-panel-border, #8884));
+    box-shadow: 0 3px 12px #0005;
+    word-break: break-all;
+    pointer-events: none; /* never let the tooltip eat a hover or a click */
+    opacity: 0; transition: opacity .12s;
+  }
+  .bmr-tip[hidden] { display: none; }
+  .bmr-tip--on { opacity: 1; }
+  .bmr-tip-missing { color: var(--vscode-editorError-foreground, #f14c4c); }`;
+
+const LINK_TOOLTIP_JS = `
+  // Show a link's resolved absolute path on hover. The extension does the
+  // resolving (it owns the path logic), we cache each answer per href.
+  function installLinkTooltip(linkAt) {
+    const tip = document.createElement('div');
+    tip.className = 'bmr-tip';
+    tip.hidden = true;
+    document.body.appendChild(tip);
+
+    const resolved = new Map(); // href -> { path, missing }
+    let hoverHref = null, timer = null, mx = 0, my = 0;
+
+    function hide() {
+      if (timer) { clearTimeout(timer); timer = null; }
+      hoverHref = null;
+      tip.classList.remove('bmr-tip--on');
+      tip.hidden = true;
+    }
+
+    // measure first, then keep the box inside the viewport
+    function place() {
+      tip.style.left = '0px';
+      tip.style.top = '0px';
+      const r = tip.getBoundingClientRect();
+      const pad = 10;
+      let left = mx + 14, top = my + 20;
+      if (left + r.width > window.innerWidth - pad) left = window.innerWidth - pad - r.width;
+      if (top + r.height > window.innerHeight - pad) top = my - r.height - 14;
+      tip.style.left = Math.max(pad, left) + 'px';
+      tip.style.top = Math.max(pad, top) + 'px';
+    }
+
+    function paint(href) {
+      if (href !== hoverHref) return; // pointer moved on while we waited
+      const info = resolved.get(href);
+      if (!info || !info.path) return;
+      tip.textContent = info.path;
+      if (info.missing) {
+        const tag = document.createElement('span');
+        tag.className = 'bmr-tip-missing';
+        tag.textContent = '  (not found)';
+        tip.appendChild(tag);
+      }
+      tip.hidden = false;
+      place();
+      tip.classList.add('bmr-tip--on');
+    }
+
+    document.addEventListener('mousemove', (e) => {
+      mx = e.clientX; my = e.clientY;
+      const link = linkAt(e.target);
+      const href = link ? link.href : null;
+      if (href === hoverHref) {
+        if (href && !tip.hidden) place(); // same link, just follow the cursor
+        return;
+      }
+      hide();
+      if (!href) return;
+      hoverHref = href;
+      if (isLocalHref(href)) {
+        if (!resolved.has(href)) vscodeApi.postMessage({ type: 'resolveLink', href });
+      } else {
+        resolved.set(href, { path: href, missing: false }); // external URL, as-is
+      }
+      timer = setTimeout(() => { timer = null; paint(href); }, 250);
+    });
+
+    document.addEventListener('mouseleave', hide);
+    window.addEventListener('scroll', hide, true);
+    window.addEventListener('message', (e) => {
+      const msg = e.data;
+      if (!msg || msg.type !== 'linkPath' || typeof msg.href !== 'string') return;
+      resolved.set(msg.href, { path: msg.path, missing: !!msg.missing });
+      if (!timer) paint(msg.href); // the hover delay already elapsed
+    });
+  }`;
 
 function openTarget(uri, filePart, columnOrOptions) {
   // vscode.open registers in the editor navigation history (back/forward)
@@ -207,6 +308,28 @@ class MarkdownEditorProvider {
         vscode.workspace.applyEdit(edit).then(done, done);
         return;
       }
+      // external link from edit mode (see openHref) → let VSCode open it
+      if (msg.type === "openExternal" && typeof msg.href === "string") {
+        vscode.env.openExternal(vscode.Uri.parse(msg.href, true)).then(undefined, (err) => {
+          vscode.window.showErrorMessage(
+            `Could not open link: ${msg.href} (${err && err.message ? err.message : err})`
+          );
+        });
+        return;
+      }
+      // hover on a link → hand back the resolved absolute path for the tooltip,
+      // plus whether the file is actually there (handy for spotting link rot)
+      if (msg.type === "resolveLink" && typeof msg.href === "string") {
+        const t = resolveTarget(docDir, msg.href);
+        let display = "";
+        let missing = false;
+        if (t) {
+          display = t.filePath + (t.fragment ? `#${t.fragment}` : "");
+          missing = !fs.existsSync(t.filePath);
+        }
+        webview.postMessage({ type: "linkPath", href: msg.href, path: display, missing });
+        return;
+      }
       // click on a relative/local link → resolve against this file's dir and
       // open it via vscode.open (so VSCode back/forward navigation works)
       if (msg.type === "open" && typeof msg.href === "string") {
@@ -318,7 +441,7 @@ class MarkdownEditorProvider {
 
   // SPIKE: experimental instant-render editor (Vditor "ir" mode). Fully
   // self-contained so the reader below stays untouched when editMode is off.
-  buildEditHtml(source, webview, vditorBase, gitInfo, config) {
+  buildEditHtml(source, webview, vditorBase, docDir, gitInfo, config) {
     const menu = this.buildMenu(config);
     const header = config.showGitHeader ? this.buildHeader(gitInfo, config.historyExpanded) : "";
     const cspSource = webview.cspSource;
@@ -363,6 +486,17 @@ class MarkdownEditorProvider {
      the page turned it grey. Follow VSCode's editor background instead, which
      keeps the reader's white in a light theme and works in dark too. */
   .vditor, .vditor--dark { --textarea-background-color: var(--vscode-editor-background, #fff); }
+
+  /* Vditor labels every heading with a grey "H1".."H6" in the left gutter.
+     Drop it, the heading size already says the level. content:none removes the
+     pseudo-element outright, so its -29px gutter goes away with it. We leave
+     the link-ref/footnote block labels alone, those actually tell you something. */
+  .vditor-ir .vditor-reset > h1:before,
+  .vditor-ir .vditor-reset > h2:before,
+  .vditor-ir .vditor-reset > h3:before,
+  .vditor-ir .vditor-reset > h4:before,
+  .vditor-ir .vditor-reset > h5:before,
+  .vditor-ir .vditor-reset > h6:before { content: none; }
 
   /* Vditor's toolbar lives under our "Formatting" button, hidden by default.
      Items float, so block is the display value to restore. */
@@ -451,6 +585,7 @@ class MarkdownEditorProvider {
   }
   .bmr-menu-item:hover { background: var(--vscode-list-hoverBackground, #8881); }
   .bmr-menu-item input { cursor: pointer; margin: 0; }
+${LINK_TOOLTIP_CSS}
 </style>
 </head>
 <body>
@@ -474,16 +609,92 @@ ${menu}
   const vscodeApi = acquireVsCodeApi();
   const CDN = ${JSON.stringify(cdn)};
   const INITIAL = ${JSON.stringify(source)};
+  const DOC_DIR = ${JSON.stringify(docDir)};
   const isDark = document.body.classList.contains('vscode-dark') ||
     document.body.classList.contains('vscode-high-contrast');
 
   let ready = false;
   let saveTimer = null;
 
+  // ---- link navigation (same deal as the reader) ---------------------------
+
+  // Is this a local/relative link (not an in-page anchor or external scheme)?
+  function isLocalHref(href) {
+    return !!href && !href.startsWith('#') && !/^[a-z][a-z0-9+.-]*:/i.test(href);
+  }
+
+  // Vditor hands its link.click callback two different shapes: an <a> in the
+  // preview panel, but in IR mode a collapsed link is a <span data-type="a">
+  // and we get its .vditor-ir__marker--link child, whose text IS the URL.
+  function hrefOfVditorLink(el) {
+    if (!el) return '';
+    if (el.tagName === 'A') return el.getAttribute('href') || '';
+    return (el.textContent || '').trim();
+  }
+
+  // Same walk, but starting from an arbitrary event target (for right-click).
+  function linkAt(target) {
+    if (!target || !target.closest) return null;
+    const a = target.closest('a[href]');
+    if (a) return { el: a, href: a.getAttribute('href') || '' };
+    const node = target.closest('[data-type="a"]');
+    if (!node) return null;
+    const marker = node.querySelector(':scope > .vditor-ir__marker--link');
+    return marker ? { el: node, href: (marker.textContent || '').trim() } : null;
+  }
+
+  function openHref(href, newTab) {
+    if (!href || href.startsWith('#')) return; // in-page anchor: nothing to do
+    if (isLocalHref(href)) {
+      vscodeApi.postMessage({ type: 'open', href, newTab: !!newTab });
+    } else {
+      // window.open is a no-op inside a webview, and IR links are spans rather
+      // than real <a>, so there is no default navigation to fall back on.
+      // Hand http(s)/mailto/etc to the extension and let VSCode open it.
+      vscodeApi.postMessage({ type: 'openExternal', href });
+    }
+  }
+
+${LINK_TOOLTIP_JS}
+  installLinkTooltip(linkAt);
+
+  // link.click gets no event, so remember the modifiers from the capture phase,
+  // which always runs before Vditor's own listener on the content element.
+  let newTabClick = false;
+  document.addEventListener('click', (e) => {
+    newTabClick = e.metaKey || e.ctrlKey;
+  }, true);
+
+  // Right-click: tag the element so VSCode shows our webview/context menu
+  // (Open, Open to the Side, Copy Link Path). The reader can tag every link up
+  // front, but here the DOM is a live contenteditable, so we tag one element on
+  // mousedown (which always precedes contextmenu) and drop the attribute again
+  // before anything reads the document back, keeping it out of getValue().
+  let taggedLink = null;
+  function clearLinkTag() {
+    if (!taggedLink) return;
+    taggedLink.removeAttribute('data-vscode-context');
+    taggedLink = null;
+  }
+  document.addEventListener('mousedown', (e) => {
+    if (e.button !== 2) return;
+    clearLinkTag();
+    const link = linkAt(e.target);
+    if (!link || !isLocalHref(link.href)) return;
+    link.el.setAttribute('data-vscode-context', JSON.stringify({
+      webviewSection: 'link',
+      preventDefaultContextMenuItems: true,
+      href: link.href,
+      baseDir: DOC_DIR,
+    }));
+    taggedLink = link.el;
+  }, true);
+
   // push the current markdown to the extension (which applies a WorkspaceEdit)
   function flush(editor) {
     if (saveTimer) { clearTimeout(saveTimer); saveTimer = null; }
     if (!ready || !editor) return;
+    clearLinkTag();
     vscodeApi.postMessage({ type: 'save', text: editor.getValue() });
   }
 
@@ -580,6 +791,13 @@ ${menu}
         theme: { current: isDark ? 'dark' : 'light' },
         hljs: { style: isDark ? 'github-dark' : 'github', lineNumber: true },
       },
+      // isOpen would window.open() the URL. Route local paths through VSCode
+      // instead, so back/forward works like it does in the reader. Only fires
+      // for a collapsed link: once you are editing one it behaves as text.
+      link: {
+        isOpen: false,
+        click: function (el) { openHref(hrefOfVditorLink(el), newTabClick); },
+      },
       after: function () {
         vditor.setValue(INITIAL, true); // true → also clears the undo stack
         ready = true;
@@ -587,10 +805,7 @@ ${menu}
       input: function () {
         if (!ready) return;
         if (saveTimer) clearTimeout(saveTimer);
-        saveTimer = setTimeout(function () {
-          saveTimer = null;
-          vscodeApi.postMessage({ type: 'save', text: vditor.getValue() });
-        }, 300);
+        saveTimer = setTimeout(function () { flush(vditor); }, 300);
       },
       blur: function () { flush(vditor); },
     });
@@ -604,7 +819,9 @@ ${menu}
   }
 
   buildHtml(source, webview, mermaidUri, vditorBase, docDir, gitInfo, config) {
-    if (config.editMode) return this.buildEditHtml(source, webview, vditorBase, gitInfo, config);
+    if (config.editMode) {
+      return this.buildEditHtml(source, webview, vditorBase, docDir, gitInfo, config);
+    }
     const body = md.render(source);
     const header = config.showGitHeader ? this.buildHeader(gitInfo, config.historyExpanded) : "";
     const menu = this.buildMenu(config);
@@ -751,6 +968,7 @@ ${menu}
     padding: 4px 10px; border-radius: 6px;
     border: 1px solid var(--vscode-panel-border, #8884);
   }
+${LINK_TOOLTIP_CSS}
 </style>
 </head>
 <body>
@@ -782,6 +1000,11 @@ ${body}
     });
   }
   tagLinks();
+${LINK_TOOLTIP_JS}
+  installLinkTooltip((t) => {
+    const a = t && t.closest ? t.closest('a[href]') : null;
+    return a ? { el: a, href: a.getAttribute('href') || '' } : null;
+  });
 
   // options kebab menu: toggle popover, persist checkbox changes
   (function wireMenu() {
