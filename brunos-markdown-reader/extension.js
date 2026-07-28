@@ -114,7 +114,7 @@ class MarkdownEditorProvider {
     const mermaidUri = webview.asWebviewUri(
       vscode.Uri.joinPath(this.context.extensionUri, "media", "mermaid.min.js")
     );
-    // SPIKE (edit mode): the folder that CONTAINS dist/ — Vditor resolves every
+    // SPIKE (edit mode): the folder that CONTAINS dist/. Vditor resolves every
     // sub-asset as `${cdn}/dist/...`, so this points it at the vendored copy.
     const vditorBase = webview.asWebviewUri(
       vscode.Uri.joinPath(this.context.extensionUri, "media", "vditor")
@@ -141,11 +141,19 @@ class MarkdownEditorProvider {
 
     render();
     getGitInfo(document.uri.fsPath).then((info) => {
-      if (info) {
-        gitInfo = info;
-        // edit mode has no git header, and re-rendering would drop the editor
-        if (!getConfig().editMode) render();
+      if (!info) return;
+      gitInfo = info;
+      const cfg = getConfig();
+      if (!cfg.editMode) {
+        render();
+        return;
       }
+      // edit mode: patch the header into the live page. A re-render here would
+      // throw away the Vditor instance (and the cursor) a second after opening.
+      webview.postMessage({
+        type: "gitHeader",
+        html: cfg.showGitHeader ? this.buildHeader(gitInfo, cfg.historyExpanded) : "",
+      });
     });
 
     const changeSub = vscode.workspace.onDidChangeTextDocument((e) => {
@@ -310,8 +318,9 @@ class MarkdownEditorProvider {
 
   // SPIKE: experimental instant-render editor (Vditor "ir" mode). Fully
   // self-contained so the reader below stays untouched when editMode is off.
-  buildEditHtml(source, webview, vditorBase, config) {
+  buildEditHtml(source, webview, vditorBase, gitInfo, config) {
     const menu = this.buildMenu(config);
+    const header = config.showGitHeader ? this.buildHeader(gitInfo, config.historyExpanded) : "";
     const cspSource = webview.cspSource;
     // no trailing slash: Vditor concatenates "/dist/..." onto this
     const cdn = vditorBase.toString().replace(/\/+$/, "");
@@ -332,20 +341,89 @@ class MarkdownEditorProvider {
 <link rel="stylesheet" href="${cdn}/dist/index.css">
 <style>
   html, body { height: 100%; margin: 0; }
-  body { padding: 0; color: var(--vscode-editor-foreground); }
-  #bmr-vditor { height: 100vh; border: none; }
+  /* our header on top, the editor taking whatever is left */
+  body {
+    padding: 0; color: var(--vscode-editor-foreground);
+    display: flex; flex-direction: column; height: 100vh; overflow: hidden;
+  }
+  #bmr-head { flex: none; padding: 10px 16px 0; }
+  #bmr-vditor { flex: 1 1 0; min-height: 0; border: none; }
 
   /* Vditor ships .vditor-reset at 16px, noticeably bigger than the reader.
-     Scale it down and borrow the reader's font stack so both views match —
-     headings/code are em/%-relative, so they follow along. Our <style> comes
-     after Vditor's <link>, so these win. */
+     Scale it down and borrow the reader's font stack so both views match.
+     Headings and code are em/%-relative, so they follow along. Our <style>
+     comes after Vditor's <link>, so these win. */
   .vditor-reset {
     font-size: 14px;
     line-height: 1.6;
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
   }
 
-  /* options kebab menu — above Vditor's toolbar (z-index 1) and fullscreen (90) */
+  /* Vditor paints the editing surface #fafbfc once it has focus, so clicking
+     the page turned it grey. Follow VSCode's editor background instead, which
+     keeps the reader's white in a light theme and works in dark too. */
+  .vditor, .vditor--dark { --textarea-background-color: var(--vscode-editor-background, #fff); }
+
+  /* Vditor's toolbar lives under our "Formatting" button, hidden by default.
+     Items float, so block is the display value to restore. */
+  .vditor-toolbar { display: none; }
+  body.bmr-fmt .vditor-toolbar { display: block; }
+
+  /* our header: git info on the left, the formatting toggle pinned right */
+  .bmr-head-row { display: flex; align-items: flex-start; gap: 10px; }
+  .bmr-head-git { flex: 1; min-width: 0; }
+  .bmr-fmt-btn {
+    flex: none; cursor: pointer; font-size: 11px;
+    display: flex; align-items: center; gap: 5px;
+    background: transparent; color: inherit;
+    border: 1px solid var(--vscode-panel-border, #8884);
+    border-radius: 4px; padding: 2px 8px; margin-right: 34px;
+    opacity: .7; transition: opacity .15s, background .15s;
+  }
+  .bmr-fmt-btn:hover { opacity: 1; background: var(--vscode-textCodeBlock-background, #8882); }
+  .bmr-fmt-btn[aria-pressed="true"] {
+    opacity: 1;
+    background: var(--vscode-textCodeBlock-background, #8882);
+    border-color: var(--vscode-focusBorder, #8886);
+  }
+
+  /* git "track" header (same look as the reader) */
+  .git-header {
+    font-size: 12px; opacity: .85;
+    margin: 0 0 8px; padding-bottom: 8px;
+    border-bottom: 1px solid var(--vscode-panel-border, #8884);
+  }
+  .git-summary { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .git-icon { opacity: .8; }
+  .git-subject-inline { opacity: .7; font-style: italic; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 40ch; }
+  .git-hash {
+    font-family: "SF Mono", Menlo, Consolas, monospace;
+    opacity: .7; cursor: pointer; padding: 0 2px; border-radius: 3px;
+  }
+  .git-hash:hover { opacity: 1; background: var(--vscode-textCodeBlock-background, #8882); }
+  .git-toggle {
+    margin-left: auto; cursor: pointer; font-size: 11px;
+    background: transparent; color: inherit;
+    border: 1px solid var(--vscode-panel-border, #8884);
+    border-radius: 4px; padding: 1px 8px;
+  }
+  .git-toggle:hover { background: var(--vscode-textCodeBlock-background, #8882); }
+  .git-history {
+    margin-top: 8px; display: flex; flex-direction: column; gap: 3px;
+    max-height: 220px; overflow-y: auto; padding-right: 4px;
+    border: 1px solid var(--vscode-panel-border, #8884); border-radius: 6px; padding: 6px;
+  }
+  .git-history[hidden] { display: none; }
+  .git-row {
+    display: grid; grid-template-columns: 10em 12em 1fr auto;
+    gap: 12px; font-size: 11px; opacity: .85; align-items: baseline;
+    cursor: pointer; padding: 2px 4px; border-radius: 4px;
+  }
+  .git-row:hover { opacity: 1; background: var(--vscode-list-hoverBackground, #8881); }
+  .git-row .git-date { opacity: .7; }
+  .git-row .git-subject { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+  /* options kebab menu, above Vditor's toolbar (z-index 1) and fullscreen (90) */
   .bmr-menu-btn {
     position: fixed; top: 8px; right: 10px; z-index: 200;
     width: 26px; height: 26px; padding: 0; border-radius: 6px; cursor: pointer;
@@ -377,6 +455,13 @@ class MarkdownEditorProvider {
 </head>
 <body>
 ${menu}
+<div id="bmr-head">
+  <div class="bmr-head-row">
+    <div class="bmr-head-git" id="bmr-git">${header}</div>
+    <button class="bmr-fmt-btn" id="bmr-fmt-btn" aria-pressed="false"
+      title="Show/hide the formatting toolbar"><span>¶</span><span>Formatting</span></button>
+  </div>
+</div>
 <div id="bmr-vditor"></div>
 <!-- Icon sprite, pre-loaded on purpose: Vditor's own icon loader uses a
      SYNCHRONOUS XHR, which fails behind the webview's resource service worker,
@@ -402,8 +487,51 @@ ${menu}
     vscodeApi.postMessage({ type: 'save', text: editor.getValue() });
   }
 
-  // options kebab menu: toggle popover, persist checkbox changes. Flush first —
-  // toggling a setting re-renders the webview and would drop a pending save.
+  // "Formatting" button: reveals Vditor's own toolbar under our header
+  (function wireFormatting() {
+    const btn = document.getElementById('bmr-fmt-btn');
+    if (!btn) return;
+    btn.addEventListener('click', () => {
+      const on = document.body.classList.toggle('bmr-fmt');
+      btn.setAttribute('aria-pressed', on ? 'true' : 'false');
+    });
+  })();
+
+  // git header: toggle the history panel, click a commit to open its diff.
+  // Re-run after the header is injected, since it arrives async.
+  function wireGitHeader() {
+    const toggle = document.getElementById('git-toggle');
+    const history = document.getElementById('git-history');
+    if (toggle && history) {
+      toggle.addEventListener('click', () => {
+        const hidden = history.hasAttribute('hidden');
+        if (hidden) history.removeAttribute('hidden');
+        else history.setAttribute('hidden', '');
+        toggle.textContent = hidden ? 'History ▴' : 'History ▾';
+      });
+    }
+    document.querySelectorAll('#bmr-git [data-hash]').forEach((el) => {
+      el.addEventListener('click', (e) => {
+        e.stopPropagation();
+        vscodeApi.postMessage({ type: 'diff', hash: el.dataset.hash });
+      });
+    });
+  }
+  wireGitHeader();
+
+  // git info resolves after the first paint. Patch the header in place instead
+  // of re-rendering, which would throw away the editor and the cursor.
+  window.addEventListener('message', (e) => {
+    const msg = e.data;
+    if (!msg || msg.type !== 'gitHeader') return;
+    const slot = document.getElementById('bmr-git');
+    if (!slot) return;
+    slot.innerHTML = msg.html;
+    wireGitHeader();
+  });
+
+  // options kebab menu: toggle popover, persist checkbox changes. Flush first,
+  // since toggling a setting re-renders the webview and would drop a pending save.
   function wireMenu(getEditor) {
     const btn = document.getElementById('bmr-menu-btn');
     const menu = document.getElementById('bmr-menu');
@@ -476,7 +604,7 @@ ${menu}
   }
 
   buildHtml(source, webview, mermaidUri, vditorBase, docDir, gitInfo, config) {
-    if (config.editMode) return this.buildEditHtml(source, webview, vditorBase, config);
+    if (config.editMode) return this.buildEditHtml(source, webview, vditorBase, gitInfo, config);
     const body = md.render(source);
     const header = config.showGitHeader ? this.buildHeader(gitInfo, config.historyExpanded) : "";
     const menu = this.buildMenu(config);
