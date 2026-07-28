@@ -80,6 +80,16 @@ function resolveTargetUri(baseDir, href) {
   return { uri, filePart: t.filePart };
 }
 
+function getConfig() {
+  const c = vscode.workspace.getConfiguration("brunosMarkdownReader");
+  return {
+    showGitHeader: c.get("showGitHeader", true),
+    historyExpanded: c.get("historyExpanded", false),
+    doubleEscToPreview: c.get("doubleEscToPreview", true),
+    editMode: c.get("editMode", false),
+  };
+}
+
 function openTarget(uri, filePart, columnOrOptions) {
   // vscode.open registers in the editor navigation history (back/forward)
   vscode.commands.executeCommand("vscode.open", uri, columnOrOptions).then(undefined, (err) => {
@@ -104,38 +114,89 @@ class MarkdownEditorProvider {
     const mermaidUri = webview.asWebviewUri(
       vscode.Uri.joinPath(this.context.extensionUri, "media", "mermaid.min.js")
     );
+    // SPIKE (edit mode): the folder that CONTAINS dist/ — Vditor resolves every
+    // sub-asset as `${cdn}/dist/...`, so this points it at the vendored copy.
+    const vditorBase = webview.asWebviewUri(
+      vscode.Uri.joinPath(this.context.extensionUri, "media", "vditor")
+    );
 
     const docDir = path.dirname(document.uri.fsPath);
+    // set while we push Vditor's markdown back into the TextDocument, so the
+    // resulting onDidChangeTextDocument doesn't re-render (and kill Vditor).
+    let applyingFromWebview = false;
     // git info changes only on commit, not on unsaved edits → fetch once, cache,
     // and reuse across re-renders. Header stays hidden until it resolves.
     let gitInfo = null;
     const render = () => {
-      webview.html = this.buildHtml(document.getText(), webview, mermaidUri, docDir, gitInfo);
+      webview.html = this.buildHtml(
+        document.getText(),
+        webview,
+        mermaidUri,
+        vditorBase,
+        docDir,
+        gitInfo,
+        getConfig()
+      );
     };
 
     render();
     getGitInfo(document.uri.fsPath).then((info) => {
       if (info) {
         gitInfo = info;
-        render();
+        // edit mode has no git header, and re-rendering would drop the editor
+        if (!getConfig().editMode) render();
       }
     });
 
     const changeSub = vscode.workspace.onDidChangeTextDocument((e) => {
-      if (e.document.uri.toString() === document.uri.toString()) {
-        render();
-      }
+      if (e.document.uri.toString() !== document.uri.toString()) return;
+      // In edit mode Vditor owns the content: our own round-trip edit (and any
+      // keystroke) must NOT rebuild the webview, or we'd lose the instance and
+      // the cursor. Only a change of the editMode setting re-renders (cfgSub).
+      if (applyingFromWebview || getConfig().editMode) return;
+      render();
+    });
+
+    const cfgSub = vscode.workspace.onDidChangeConfiguration((e) => {
+      if (e.affectsConfiguration("brunosMarkdownReader")) render();
     });
 
     // double-click on the page → reopen the file in the text editor (edit mode)
     const msgSub = webview.onDidReceiveMessage((msg) => {
       if (!msg) return;
       if (msg.type === "edit") {
-        // arm the double-Esc-to-preview shortcut for this specific doc only
-        editedFromPreview.add(document.uri.toString());
+        // arm the double-Esc-to-preview shortcut for this doc only (if enabled)
+        if (getConfig().doubleEscToPreview) {
+          editedFromPreview.add(document.uri.toString());
+        }
         vscode.commands
           .executeCommand("vscode.openWith", document.uri, "default")
           .then(updateEscapeContext);
+        return;
+      }
+      // kebab menu → persist a setting (re-render happens via config change)
+      if (msg.type === "setConfig" && typeof msg.key === "string") {
+        vscode.workspace
+          .getConfiguration("brunosMarkdownReader")
+          .update(msg.key, msg.value, vscode.ConfigurationTarget.Global);
+        return;
+      }
+      // SPIKE (edit mode): Vditor sends back the whole markdown → replace the
+      // document's full range. VSCode then owns dirty state / Cmd+S / undo.
+      if (msg.type === "save" && typeof msg.text === "string") {
+        const current = document.getText();
+        if (msg.text === current) return;
+        const edit = new vscode.WorkspaceEdit();
+        edit.replace(
+          document.uri,
+          new vscode.Range(document.positionAt(0), document.positionAt(current.length)),
+          msg.text
+        );
+        applyingFromWebview = true;
+        const done = () => {
+          applyingFromWebview = false;
+        };
+        vscode.workspace.applyEdit(edit).then(done, done);
         return;
       }
       // click on a relative/local link → resolve against this file's dir and
@@ -152,6 +213,7 @@ class MarkdownEditorProvider {
 
     webviewPanel.onDidDispose(() => {
       changeSub.dispose();
+      cfgSub.dispose();
       msgSub.dispose();
     });
   }
@@ -198,7 +260,23 @@ class MarkdownEditorProvider {
     openTarget(t.uri, t.filePart, newTab ? { preview: false } : undefined);
   }
 
-  buildHeader(git) {
+  buildMenu(config) {
+    const cb = (key, label, checked) =>
+      `<label class="bmr-menu-item"><input type="checkbox" data-key="${key}"${
+        checked ? " checked" : ""
+      }><span>${label}</span></label>`;
+    return (
+      `<button class="bmr-menu-btn" id="bmr-menu-btn" title="Options">⋯</button>` +
+      `<div class="bmr-menu" id="bmr-menu" hidden>` +
+      cb("showGitHeader", "Show git header", config.showGitHeader) +
+      cb("historyExpanded", "History expanded by default", config.historyExpanded) +
+      cb("doubleEscToPreview", "Double-Esc back to preview", config.doubleEscToPreview) +
+      cb("editMode", "Edit mode (Vditor IR)", config.editMode) +
+      `</div>`
+    );
+  }
+
+  buildHeader(git, expanded) {
     if (!git || !git.commits.length) return "";
     const esc = (s) => md.utils.escapeHtml(s || "");
     const last = git.commits[0];
@@ -221,16 +299,187 @@ class MarkdownEditorProvider {
       `<span class="git-icon">📝</span>` +
       `<span>Updated ${esc(relTime(last.date))} by <strong>${esc(last.author)}</strong></span>` +
       `<span class="git-subject-inline">${esc(last.subject)}</span>` +
-      `<button class="git-toggle" id="git-toggle" title="Toggle file history">History ▾</button>` +
+      `<button class="git-toggle" id="git-toggle" title="Toggle file history">History ${
+        expanded ? "▴" : "▾"
+      }</button>` +
       `</div>` +
-      `<div class="git-history" id="git-history" hidden>${rows}</div>` +
+      `<div class="git-history" id="git-history"${expanded ? "" : " hidden"}>${rows}</div>` +
       `</div>`
     );
   }
 
-  buildHtml(source, webview, mermaidUri, docDir, gitInfo) {
+  // SPIKE: experimental instant-render editor (Vditor "ir" mode). Fully
+  // self-contained so the reader below stays untouched when editMode is off.
+  buildEditHtml(source, webview, vditorBase, config) {
+    const menu = this.buildMenu(config);
+    const cspSource = webview.cspSource;
+    // no trailing slash: Vditor concatenates "/dist/..." onto this
+    const cdn = vditorBase.toString().replace(/\/+$/, "");
+    // CSP, relative to the reader's, is relaxed for the vendored Vditor:
+    //  'unsafe-eval'        → mermaid/markmap bundled with Vditor use new Function()
+    //  script-src blob:     → the graphviz renderer runs viz.js from a Blob worker
+    //  worker-src blob:     → same Blob worker
+    //  font-src data:       → katex ships base64 @font-face fallbacks
+    //  img-src data: blob:  → emoji sprites + rendered diagram/image previews
+    //  connect-src          → sub-asset fetches (katex css, mathjax, viz.js wasm)
+    return `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta http-equiv="Content-Security-Policy"
+  content="default-src 'none'; img-src ${cspSource} https: data: blob:; style-src ${cspSource} 'unsafe-inline'; script-src ${cspSource} 'unsafe-inline' 'unsafe-eval' blob:; font-src ${cspSource} data:; worker-src ${cspSource} blob:; child-src blob:; connect-src ${cspSource} blob: data:;">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link rel="stylesheet" href="${cdn}/dist/index.css">
+<style>
+  html, body { height: 100%; margin: 0; }
+  body { padding: 0; color: var(--vscode-editor-foreground); }
+  #bmr-vditor { height: 100vh; border: none; }
+
+  /* Vditor ships .vditor-reset at 16px, noticeably bigger than the reader.
+     Scale it down and borrow the reader's font stack so both views match —
+     headings/code are em/%-relative, so they follow along. Our <style> comes
+     after Vditor's <link>, so these win. */
+  .vditor-reset {
+    font-size: 14px;
+    line-height: 1.6;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+  }
+
+  /* options kebab menu — above Vditor's toolbar (z-index 1) and fullscreen (90) */
+  .bmr-menu-btn {
+    position: fixed; top: 8px; right: 10px; z-index: 200;
+    width: 26px; height: 26px; padding: 0; border-radius: 6px; cursor: pointer;
+    font-size: 15px; line-height: 1;
+    display: flex; align-items: center; justify-content: center;
+    background: color-mix(in srgb, var(--vscode-editor-foreground, #888) 10%, transparent);
+    color: var(--vscode-editor-foreground, #ccc);
+    border: 1px solid var(--vscode-panel-border, #8884);
+    opacity: .45; transition: opacity .15s;
+  }
+  .bmr-menu-btn:hover { opacity: 1; }
+  .bmr-menu {
+    position: fixed; top: 40px; right: 10px; z-index: 200;
+    min-width: 230px; padding: 6px;
+    background: var(--vscode-editorWidget-background, var(--vscode-editor-background, #252526));
+    border: 1px solid var(--vscode-panel-border, #8884); border-radius: 8px;
+    box-shadow: 0 4px 16px #0006;
+    display: flex; flex-direction: column; gap: 2px;
+  }
+  .bmr-menu[hidden] { display: none; }
+  .bmr-menu-item {
+    display: flex; align-items: center; gap: 8px;
+    font-size: 12px; padding: 5px 8px; border-radius: 5px; cursor: pointer;
+    color: var(--vscode-editor-foreground);
+  }
+  .bmr-menu-item:hover { background: var(--vscode-list-hoverBackground, #8881); }
+  .bmr-menu-item input { cursor: pointer; margin: 0; }
+</style>
+</head>
+<body>
+${menu}
+<div id="bmr-vditor"></div>
+<!-- Icon sprite, pre-loaded on purpose: Vditor's own icon loader uses a
+     SYNCHRONOUS XHR, which fails behind the webview's resource service worker,
+     so the toolbar came up as blank buttons. Both of its loaders bail out when
+     an element with this id already exists, so ours wins. Must sit in <body>:
+     the sprite injects itself via document.body.insertAdjacentHTML. -->
+<script id="vditorIconScript" src="${cdn}/dist/js/icons/material.js"></script>
+<script src="${cdn}/dist/index.min.js"></script>
+<script>
+  const vscodeApi = acquireVsCodeApi();
+  const CDN = ${JSON.stringify(cdn)};
+  const INITIAL = ${JSON.stringify(source)};
+  const isDark = document.body.classList.contains('vscode-dark') ||
+    document.body.classList.contains('vscode-high-contrast');
+
+  let ready = false;
+  let saveTimer = null;
+
+  // push the current markdown to the extension (which applies a WorkspaceEdit)
+  function flush(editor) {
+    if (saveTimer) { clearTimeout(saveTimer); saveTimer = null; }
+    if (!ready || !editor) return;
+    vscodeApi.postMessage({ type: 'save', text: editor.getValue() });
+  }
+
+  // options kebab menu: toggle popover, persist checkbox changes. Flush first —
+  // toggling a setting re-renders the webview and would drop a pending save.
+  function wireMenu(getEditor) {
+    const btn = document.getElementById('bmr-menu-btn');
+    const menu = document.getElementById('bmr-menu');
+    if (!btn || !menu) return;
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      if (menu.hasAttribute('hidden')) menu.removeAttribute('hidden');
+      else menu.setAttribute('hidden', '');
+    });
+    document.addEventListener('click', (e) => {
+      if (!menu.hasAttribute('hidden') && !menu.contains(e.target) && e.target !== btn) {
+        menu.setAttribute('hidden', '');
+      }
+    });
+    menu.querySelectorAll('input[type="checkbox"][data-key]').forEach((box) => {
+      box.addEventListener('change', () => {
+        flush(getEditor());
+        vscodeApi.postMessage({ type: 'setConfig', key: box.dataset.key, value: box.checked });
+      });
+    });
+  }
+
+  let vditor = null;
+  wireMenu(() => vditor);
+
+  try {
+    vditor = new Vditor('bmr-vditor', {
+      cdn: CDN,
+      mode: 'ir',
+      lang: 'en_US',
+      icon: 'material',
+      theme: isDark ? 'dark' : 'classic',
+      height: '100%',
+      cache: { enable: false },
+      // curated instead of the default 30-odd items: drops upload/record (no
+      // backend here) and the devtools/help clutter. Hover shows each name.
+      toolbar: [
+        'headings', 'bold', 'italic', 'strike', '|',
+        'list', 'ordered-list', 'check', 'outdent', 'indent', '|',
+        'quote', 'code', 'inline-code', 'link', 'table', 'line', '|',
+        'undo', 'redo', '|',
+        'outline', 'preview', 'fullscreen', 'edit-mode',
+      ],
+      toolbarConfig: { pin: true },
+      preview: {
+        theme: { current: isDark ? 'dark' : 'light' },
+        hljs: { style: isDark ? 'github-dark' : 'github', lineNumber: true },
+      },
+      after: function () {
+        vditor.setValue(INITIAL, true); // true → also clears the undo stack
+        ready = true;
+      },
+      input: function () {
+        if (!ready) return;
+        if (saveTimer) clearTimeout(saveTimer);
+        saveTimer = setTimeout(function () {
+          saveTimer = null;
+          vscodeApi.postMessage({ type: 'save', text: vditor.getValue() });
+        }, 300);
+      },
+      blur: function () { flush(vditor); },
+    });
+  } catch (e) {
+    console.error('vditor init failed', e);
+    document.getElementById('bmr-vditor').textContent = 'Vditor failed to load: ' + e;
+  }
+</script>
+</body>
+</html>`;
+  }
+
+  buildHtml(source, webview, mermaidUri, vditorBase, docDir, gitInfo, config) {
+    if (config.editMode) return this.buildEditHtml(source, webview, vditorBase, config);
     const body = md.render(source);
-    const header = this.buildHeader(gitInfo);
+    const header = config.showGitHeader ? this.buildHeader(gitInfo, config.historyExpanded) : "";
+    const menu = this.buildMenu(config);
     const cspSource = webview.cspSource;
     return `<!DOCTYPE html>
 <html lang="en">
@@ -300,6 +549,35 @@ class MarkdownEditorProvider {
   .git-row .git-date { opacity: .7; }
   .git-row .git-subject { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
+  /* options kebab menu (top-right) */
+  .bmr-menu-btn {
+    position: fixed; top: 10px; right: 12px; z-index: 50;
+    width: 28px; height: 28px; padding: 0; border-radius: 6px; cursor: pointer;
+    font-size: 16px; line-height: 1;
+    display: flex; align-items: center; justify-content: center;
+    background: color-mix(in srgb, var(--vscode-editor-foreground, #888) 10%, transparent);
+    color: var(--vscode-editor-foreground, #ccc);
+    border: 1px solid var(--vscode-panel-border, #8884);
+    opacity: .45; transition: opacity .15s, background .15s;
+  }
+  .bmr-menu-btn:hover { opacity: 1; background: color-mix(in srgb, var(--vscode-editor-foreground, #888) 20%, transparent); }
+  .bmr-menu {
+    position: fixed; top: 44px; right: 12px; z-index: 50;
+    min-width: 230px; padding: 6px;
+    background: var(--vscode-editorWidget-background, var(--vscode-editor-background, #252526));
+    border: 1px solid var(--vscode-panel-border, #8884); border-radius: 8px;
+    box-shadow: 0 4px 16px #0006;
+    display: flex; flex-direction: column; gap: 2px;
+  }
+  .bmr-menu[hidden] { display: none; }
+  .bmr-menu-item {
+    display: flex; align-items: center; gap: 8px;
+    font-size: 12px; padding: 5px 8px; border-radius: 5px; cursor: pointer;
+    color: var(--vscode-editor-foreground);
+  }
+  .bmr-menu-item:hover { background: var(--vscode-list-hoverBackground, #8881); }
+  .bmr-menu-item input { cursor: pointer; margin: 0; }
+
   /* wrapper + expand button shown on diagram hover */
   .mermaid-wrap { position: relative; display: block; text-align: center; margin: 1em 0; }
   .mermaid-wrap svg { width: 100%; max-width: 100% !important; height: auto; }
@@ -348,6 +626,7 @@ class MarkdownEditorProvider {
 </style>
 </head>
 <body>
+${menu}
 ${header}
 ${body}
 <script src="${mermaidUri}"></script>
@@ -375,6 +654,31 @@ ${body}
     });
   }
   tagLinks();
+
+  // options kebab menu: toggle popover, persist checkbox changes
+  (function wireMenu() {
+    const btn = document.getElementById('bmr-menu-btn');
+    const menu = document.getElementById('bmr-menu');
+    if (!btn || !menu) return;
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      if (menu.hasAttribute('hidden')) menu.removeAttribute('hidden');
+      else menu.setAttribute('hidden', '');
+    });
+    document.addEventListener('click', (e) => {
+      if (!menu.hasAttribute('hidden') && !menu.contains(e.target) && e.target !== btn) {
+        menu.setAttribute('hidden', '');
+      }
+    });
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') menu.setAttribute('hidden', '');
+    });
+    menu.querySelectorAll('input[type="checkbox"][data-key]').forEach((box) => {
+      box.addEventListener('change', () => {
+        vscodeApi.postMessage({ type: 'setConfig', key: box.dataset.key, value: box.checked });
+      });
+    });
+  })();
 
   // git header: toggle history panel + copy commit hash on click
   (function wireGitHeader() {
@@ -423,6 +727,7 @@ ${body}
     if (e.target.closest('a')) return;
     if (e.target.closest('.mermaid-wrap')) return; // diagrams are interactive
     if (e.target.closest('.git-header')) return;    // header controls are interactive
+    if (e.target.closest('.bmr-menu') || e.target.closest('.bmr-menu-btn')) return; // options menu
     vscodeApi.postMessage({ type: 'edit' });
   });
 

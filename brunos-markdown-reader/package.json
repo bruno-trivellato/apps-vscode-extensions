@@ -2,7 +2,7 @@
   "name": "brunos-markdown-reader",
   "displayName": "Bruno's Markdown Reader",
   "description": "Opens Markdown files pre-rendered (reading mode), with mermaid diagram support.",
-  "version": "0.0.13",
+  "version": "0.0.15",
   "publisher": "brunotrivellato",
   "engines": {
     "vscode": "^1.75.0"
@@ -42,6 +42,31 @@
         "when": "brunosMarkdownReader.canEscapeToPreview && editorTextFocus && editorLangId == markdown && !editorReadonly && !editorHasSelection && !editorHasMultipleSelections && !suggestWidgetVisible && !inlineSuggestionVisible && !parameterHintsVisible && !renameInputVisible && !findWidgetVisible && !referenceSearchVisible && !inSnippetMode"
       }
     ],
+    "configuration": {
+      "title": "Bruno's Markdown Reader",
+      "properties": {
+        "brunosMarkdownReader.showGitHeader": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show the git header (last commit + file history) at the top of the rendered view."
+        },
+        "brunosMarkdownReader.historyExpanded": {
+          "type": "boolean",
+          "default": false,
+          "description": "Start the commit History panel expanded instead of collapsed."
+        },
+        "brunosMarkdownReader.doubleEscToPreview": {
+          "type": "boolean",
+          "default": true,
+          "description": "When editing a file opened from the reader, press Esc twice to return to preview."
+        },
+        "brunosMarkdownReader.editMode": {
+          "type": "boolean",
+          "default": false,
+          "description": "EXPERIMENTAL: replace the rendered reader with the Vditor instant-render (IR) editor, editing the file in place."
+        }
+      }
+    },
     "menus": {
       "webview/context": [
         {
@@ -69,6 +94,7 @@
     "markdown-it": "^14.1.0"
   },
   "devDependencies": {
-    "mocha": "^11.1.0"
+    "mocha": "^11.1.0",
+    "vditor": "^3.11.2"
   }
 }
