@@ -10,7 +10,8 @@ VSCode extension that opens `.md` files **rendered inline** (reading mode) inste
 - **Fullscreen diagrams**: hover a mermaid diagram and click ⛶ to open a pan/zoom viewer. Middle-drag pans, scroll zooms, `Esc` closes.
 - **Edit and preview**: double-click the page to switch to the text editor. Press `Esc` twice to go back to preview.
 - **Options menu**: the `⋯` button (top-right) toggles the settings below without leaving the file.
-- **Edit mode (experimental)**: swaps the reader for the [Vditor](https://b3log.org/vditor) instant-render editor, Typora/Notion style, where markdown formats itself as you type. Edits go straight to the file, so dirty state, `Cmd`+`S` and undo work as usual. Off by default.
+- **Notion-like experience (beta)**: swaps the reader for the [Vditor](https://b3log.org/vditor) instant-render editor, where markdown formats itself as you type. Edits go straight to the file, so dirty state, `Cmd`+`S` and undo work as usual. Click **¶ Formatting** in the header for the toolbar. Off by default.
+- **Link tooltip**: hover any link to see the full path it resolves to, flagged in red when the file is not there.
 
 ## Settings
 
@@ -19,15 +20,15 @@ VSCode extension that opens `.md` files **rendered inline** (reading mode) inste
 | `brunosMarkdownReader.showGitHeader` | `true` | Show the git header (last commit + file history). |
 | `brunosMarkdownReader.historyExpanded` | `false` | Start the commit History panel expanded. |
 | `brunosMarkdownReader.doubleEscToPreview` | `true` | Press `Esc` twice to return to preview while editing. |
-| `brunosMarkdownReader.editMode` | `false` | **Experimental.** Replace the reader with the Vditor instant-render (IR) editor. |
+| `brunosMarkdownReader.editMode` | `false` | **Beta.** Notion-like experience: replace the reader with the Vditor instant-render editor. |
 
-### Edit mode notes
+### Notes on the Notion-like experience
 
 This is a spike, so it's worth trying but expectations should stay low:
 
-- The git header is hidden while editing.
 - Content is written back 300 ms after you stop typing, and on blur. It's a full-document replace, so undo history is coarser than normal typing.
-- Edit mode runs under a looser CSP than the reader. It needs `'unsafe-eval'` for Vditor's bundled mermaid/markmap, plus a `blob:` worker for graphviz. The reader keeps the strict policy.
+- The formatting toolbar is Vditor's own, hidden behind the **¶ Formatting** button so it stays out of the way.
+- It runs under a looser CSP than the reader. It needs `'unsafe-eval'` for Vditor's bundled mermaid/markmap, plus a `blob:` worker for graphviz. The reader keeps the strict policy.
 - Vditor's assets are vendored under `media/vditor`, for the same reason mermaid is: the webview CSP blocks CDNs.
 
 ## Build and install

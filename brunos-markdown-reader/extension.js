@@ -91,6 +91,38 @@ function getConfig() {
   };
 }
 
+const MARKETPLACE_URL =
+  "https://marketplace.visualstudio.com/items?itemName=brunotrivellato.brunos-markdown-reader";
+
+// straight from the manifest, so the menu can never drift from the real version
+const { version: VERSION } = require("./package.json");
+
+// Footer of the kebab menu. buildMenu is shared by both views, so the styles
+// are too, unlike the rest of the menu CSS which each view carries itself.
+const MENU_FOOT_CSS = `
+  .bmr-menu-foot {
+    display: flex; align-items: center; gap: 8px;
+    margin-top: 4px; padding: 6px 8px 2px;
+    border-top: 1px solid var(--vscode-panel-border, #8884);
+    font-size: 11px; opacity: .6;
+    color: var(--vscode-editor-foreground);
+  }
+  .bmr-menu-name { flex: 1; min-width: 0; white-space: nowrap; }
+  .bmr-menu-ver { font-family: "SF Mono", Menlo, Consolas, monospace; font-size: 10px; opacity: .8; }
+  .bmr-menu-info {
+    flex: none; width: 17px; height: 17px; border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 11px; font-weight: 600; font-style: italic;
+    text-decoration: none; cursor: pointer;
+    color: var(--vscode-editor-foreground);
+    border: 1px solid var(--vscode-panel-border, #8886);
+  }
+  .bmr-menu-info:hover {
+    opacity: 1;
+    background: var(--vscode-list-hoverBackground, #8881);
+    border-color: var(--vscode-focusBorder, #8888);
+  }`;
+
 // ---- link hover tooltip -----------------------------------------------------
 // Shared by the reader and edit mode. They locate links differently, so each
 // passes its own `linkAt(target)`, but the tooltip itself behaves the same.
@@ -402,7 +434,13 @@ class MarkdownEditorProvider {
       cb("showGitHeader", "Show git header", config.showGitHeader) +
       cb("historyExpanded", "History expanded by default", config.historyExpanded) +
       cb("doubleEscToPreview", "Double-Esc back to preview", config.doubleEscToPreview) +
-      cb("editMode", "Edit mode (Vditor IR)", config.editMode) +
+      cb("editMode", "Notion-like experience (beta)", config.editMode) +
+      // an external https anchor: webviews hand these to the browser themselves,
+      // and our click handlers deliberately ignore non-local hrefs
+      `<div class="bmr-menu-foot">` +
+      `<span class="bmr-menu-name">Bruno's Markdown Reader <span class="bmr-menu-ver">v${VERSION}</span></span>` +
+      `<a class="bmr-menu-info" href="${MARKETPLACE_URL}" title="About this extension">i</a>` +
+      `</div>` +
       `</div>`
     );
   }
@@ -486,6 +524,12 @@ class MarkdownEditorProvider {
      the page turned it grey. Follow VSCode's editor background instead, which
      keeps the reader's white in a light theme and works in dark too. */
   .vditor, .vditor--dark { --textarea-background-color: var(--vscode-editor-background, #fff); }
+
+  /* Scroll past the last line, so the end of a file can sit mid screen instead
+     of being stuck at the bottom edge. !important on purpose: Vditor writes an
+     inline "padding: 10px Xpx" shorthand on this element and recomputes it on
+     resize, which would otherwise reset our padding-bottom every time. */
+  .vditor-ir pre.vditor-reset { padding-bottom: 50vh !important; }
 
   /* Vditor labels every heading with a grey "H1".."H6" in the left gutter.
      Drop it, the heading size already says the level. content:none removes the
@@ -585,6 +629,7 @@ class MarkdownEditorProvider {
   }
   .bmr-menu-item:hover { background: var(--vscode-list-hoverBackground, #8881); }
   .bmr-menu-item input { cursor: pointer; margin: 0; }
+${MENU_FOOT_CSS}
 ${LINK_TOOLTIP_CSS}
 </style>
 </head>
@@ -839,7 +884,9 @@ ${LINK_TOOLTIP_JS}
     line-height: 1.6;
     max-width: 860px;
     margin: 0 auto;
-    padding: 24px 32px 64px;
+    /* 50vh at the bottom so the end of a long file can be scrolled up to the
+       middle of the screen, instead of stopping at the bottom edge. */
+    padding: 24px 32px 50vh;
     color: var(--vscode-editor-foreground);
   }
   h1, h2 { border-bottom: 1px solid var(--vscode-panel-border, #8884); padding-bottom: .3em; }
@@ -968,6 +1015,7 @@ ${LINK_TOOLTIP_JS}
     padding: 4px 10px; border-radius: 6px;
     border: 1px solid var(--vscode-panel-border, #8884);
   }
+${MENU_FOOT_CSS}
 ${LINK_TOOLTIP_CSS}
 </style>
 </head>

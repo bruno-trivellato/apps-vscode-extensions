@@ -63,7 +63,7 @@
         "brunosMarkdownReader.editMode": {
           "type": "boolean",
           "default": false,
-          "description": "EXPERIMENTAL: replace the rendered reader with the Vditor instant-render (IR) editor, editing the file in place."
+          "description": "BETA: Notion-like experience. Replace the rendered reader with the Vditor instant-render (IR) editor, editing the file in place."
         }
       }
     },
