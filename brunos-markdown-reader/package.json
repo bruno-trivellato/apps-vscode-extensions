@@ -1,13 +1,15 @@
 {
   "name": "brunos-markdown-reader",
   "displayName": "Bruno's Markdown Reader",
-  "description": "Opens Markdown files pre-rendered (reading mode), with mermaid diagram support.",
-  "version": "0.0.15",
+  "description": "Opens Markdown files pre-rendered (reading mode), with mermaid diagram support and a beta Notion-like editing experience.",
+  "version": "0.0.16",
   "publisher": "brunotrivellato",
   "engines": {
     "vscode": "^1.75.0"
   },
-  "categories": ["Other"],
+  "categories": [
+    "Other"
+  ],
   "license": "MIT",
   "repository": {
     "type": "git",
@@ -30,10 +32,22 @@
       }
     ],
     "commands": [
-      { "command": "brunosMarkdownReader.openLink", "title": "Open" },
-      { "command": "brunosMarkdownReader.openLinkToSide", "title": "Open to the Side" },
-      { "command": "brunosMarkdownReader.copyLinkPath", "title": "Copy Link Path" },
-      { "command": "brunosMarkdownReader.escapeToPreview", "title": "Back to Preview (Bruno's Markdown Reader)" }
+      {
+        "command": "brunosMarkdownReader.openLink",
+        "title": "Open"
+      },
+      {
+        "command": "brunosMarkdownReader.openLinkToSide",
+        "title": "Open to the Side"
+      },
+      {
+        "command": "brunosMarkdownReader.copyLinkPath",
+        "title": "Copy Link Path"
+      },
+      {
+        "command": "brunosMarkdownReader.escapeToPreview",
+        "title": "Back to Preview (Bruno's Markdown Reader)"
+      }
     ],
     "keybindings": [
       {
