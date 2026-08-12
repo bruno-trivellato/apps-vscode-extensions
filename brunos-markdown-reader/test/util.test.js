@@ -1,6 +1,6 @@
 const assert = require("assert");
 const path = require("path");
-const { resolveTarget, relTime, parseGitLog, diffOps, merge3 } = require("../lib/util");
+const { resolveTarget, relTime, parseGitLog, diffOps, merge3, resolveImgSrc } = require("../lib/util");
 
 const BASE = "/repo/docs";
 
@@ -305,5 +305,61 @@ describe("merge3", () => {
     const out = merge3(BASELINE, ORIGIN, next);
     assert.ok(out.includes("new paragraph"));
     assert.ok(out.includes("**Scope:** framing only  "), "hard break survived");
+  });
+});
+
+// A picture sitting next to the document is written as a relative path, which
+// the webview resolves against vscode-webview:// and fails to find. The bug was
+// that every local image came up blank.
+describe("resolveImgSrc", () => {
+  const BASE = "https://host/res/doc";
+
+  it("rebases a relative src onto the document's folder", () => {
+    assert.strictEqual(
+      resolveImgSrc('<img src="images/01.png">', BASE),
+      '<img src="https://host/res/doc/images/01.png">'
+    );
+  });
+
+  it("normalises a leading ./", () => {
+    assert.strictEqual(
+      resolveImgSrc('<img src="./a.png">', BASE),
+      '<img src="https://host/res/doc/a.png">'
+    );
+  });
+
+  it("tolerates a trailing slash on the base", () => {
+    assert.strictEqual(
+      resolveImgSrc('<img src="a.png">', BASE + "/"),
+      '<img src="https://host/res/doc/a.png">'
+    );
+  });
+
+  it("leaves anything the webview can already fetch alone", () => {
+    for (const src of ["https://x/a.png", "http://x/a.png", "data:image/png;base64,AA", "//x/a.png", "/abs/a.png"]) {
+      const html = '<img src="' + src + '">';
+      assert.strictEqual(resolveImgSrc(html, BASE), html, src);
+    }
+  });
+
+  it("handles single quotes and extra attributes", () => {
+    assert.strictEqual(
+      resolveImgSrc("<img alt='x' src='a.png' width=\"200\">", BASE),
+      "<img alt='x' src='https://host/res/doc/a.png' width=\"200\">"
+    );
+  });
+
+  it("rewrites every image, not just the first", () => {
+    const out = resolveImgSrc('<img src="a.png"><p>t</p><img src="b.png">', BASE);
+    assert.ok(out.includes("/doc/a.png") && out.includes("/doc/b.png"));
+  });
+
+  it("leaves other tags and other src attributes untouched", () => {
+    const html = '<script src="a.js"></script><a href="b.png">x</a>';
+    assert.strictEqual(resolveImgSrc(html, BASE), html);
+  });
+
+  it("is a no-op without a base", () => {
+    assert.strictEqual(resolveImgSrc('<img src="a.png">', ""), '<img src="a.png">');
   });
 });

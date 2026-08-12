@@ -1,5 +1,9 @@
 const assert = require("assert");
-const { TABLE_CSS, EDIT_TABLE_CSS } = require("../lib/css");
+const { tableCss, editTableCss, FOLD_CSS, EDIT_FOLD_CSS, TABLE_OVERFLOW_MODES } = require("../lib/css");
+
+// default mode, so the existing expectations keep describing "center"
+const TABLE_CSS = tableCss("center");
+const EDIT_TABLE_CSS = editTableCss("center");
 
 // These guard real bugs, not taste. Each case names the symptom it prevents so
 // a future change that "simplifies" the CSS fails here with a readable reason.
@@ -104,5 +108,94 @@ describe("edit mode (Vditor) table CSS", () => {
   it("top-aligns cells and left-aligns headers", () => {
     assert.match(rule(EDIT_TABLE_CSS, ".vditor-reset table td, .vditor-reset table th"), /vertical-align:\s*top/);
     assert.match(rule(EDIT_TABLE_CSS, ".vditor-reset table th"), /text-align:\s*left/);
+  });
+});
+
+// The tableOverflow setting. "center" is the default and is covered above;
+// these pin down that "left" really is the other behaviour and not a no-op.
+describe("tableOverflow setting", () => {
+  it("offers exactly the two documented modes", () => {
+    assert.deepStrictEqual(TABLE_OVERFLOW_MODES, ["center", "left"]);
+  });
+
+  for (const [name, build] of [["reader", tableCss], ["edit mode", editTableCss]]) {
+    it(`centres ${name} tables in "center" mode`, () => {
+      const css = build("center");
+      assert.match(css, /margin-left:\s*50%/);
+      assert.match(css, /transform:\s*translateX\(-50%\)/);
+    });
+
+    it(`anchors ${name} tables left in "left" mode`, () => {
+      const css = build("left");
+      // the breakout is what shifts the table; both halves must go together or
+      // the table ends up pushed off to one side
+      assert.doesNotMatch(css, /margin-left:\s*50%/);
+      assert.doesNotMatch(css, /transform:\s*translateX\(-50%\)/);
+    });
+
+    it(`keeps ${name} tables sized to content in both modes`, () => {
+      // only the alignment changes between modes, never the growth itself
+      for (const mode of TABLE_OVERFLOW_MODES) {
+        assert.match(build(mode), /width:\s*max-content/, `${mode} must still size to content`);
+        assert.match(build(mode), /max-width:\s*\S/, `${mode} must still cap at the viewport`);
+      }
+    });
+  }
+
+  it("never shreds inline code, whichever mode is picked", () => {
+    // the original bug must not come back through a mode nobody tested
+    for (const mode of TABLE_OVERFLOW_MODES) {
+      assert.match(tableCss(mode), /th code, td code \{ white-space: nowrap; \}/);
+      assert.match(editTableCss(mode), /white-space:\s*nowrap/);
+    }
+  });
+});
+
+describe("collapsible headings CSS", () => {
+  it("hides a folded section", () => {
+    assert.match(FOLD_CSS, /\[data-bmr-hidden\]\s*\{\s*display:\s*none/);
+  });
+
+  it("anchors the arrow against the heading", () => {
+    // absolute positioning only works if the heading is a positioned ancestor
+    assert.match(FOLD_CSS, /h1, h2, h3, h4, h5, h6 \{ position: relative; \}/);
+    assert.match(FOLD_CSS, /\.bmr-fold \{[^}]*position:\s*absolute/);
+  });
+
+  it("keeps the arrow visible while its section is folded", () => {
+    // otherwise a collapsed section looks like content that simply vanished
+    assert.match(FOLD_CSS, /\.bmr-folded \.bmr-fold \{ opacity: \.8; \}/);
+  });
+
+  it("clears the kebab so the two buttons do not overlap", () => {
+    // kebab sits at right:12px and is 28px wide
+    const m = FOLD_CSS.match(/\.bmr-foldall \{([^}]*)\}/);
+    assert.ok(m, "no .bmr-foldall rule");
+    assert.match(m[1], /right:\s*46px/);
+  });
+});
+
+// Edit mode folding. The arrows must stay OUT of the contenteditable, since
+// anything inside it can be serialized into the user's file.
+describe("edit mode fold CSS", () => {
+  it("hides folded blocks inside the editor", () => {
+    assert.match(EDIT_FOLD_CSS, /\.vditor-reset \[data-bmr-hidden\]\s*\{\s*display:\s*none/);
+  });
+
+  it("floats the arrows instead of anchoring them in the heading", () => {
+    // position:fixed is what lets the button live on <body>, outside the
+    // contenteditable. Making it absolute/relative would imply re-parenting it
+    // into the editor, which risks writing a <button> into the markdown.
+    const m = EDIT_FOLD_CSS.match(/\.bmr-fold-o \{([^}]*)\}/);
+    assert.ok(m, "no .bmr-fold-o rule");
+    assert.match(m[1], /position:\s*fixed/);
+  });
+
+  it("never scopes the arrow inside .vditor-reset", () => {
+    assert.doesNotMatch(EDIT_FOLD_CSS, /\.vditor-reset[^{]*\.bmr-fold-o/);
+  });
+
+  it("keeps a folded section's arrow visible", () => {
+    assert.match(EDIT_FOLD_CSS, /\.bmr-fold-on/);
   });
 });

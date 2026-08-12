@@ -26,6 +26,38 @@ function resolveTarget(baseDir, href) {
   };
 }
 
+/**
+ * True when a src points somewhere the webview can already fetch on its own.
+ * Everything else is relative to the document and has to be rebased.
+ * Root-relative ("/foo.png") is left alone deliberately: it means the filesystem
+ * root, not the document's folder, so joining it onto the base would be a lie.
+ */
+function isResolvableUrl(src) {
+  return /^(?:[a-z][a-z0-9+.-]*:|\/\/|\/|#)/i.test(src);
+}
+
+/**
+ * Point every relative <img src> at `base`, the document's own folder as a URI
+ * the webview will serve. Applies to markdown images and raw <img> tags alike,
+ * since markdown-it emits both as plain <img> elements.
+ *
+ * Only the src attribute changes. In edit mode that matters: Lute rebuilds the
+ * markdown from its marker spans rather than from src, so a rewritten src never
+ * reaches the file. There is a test covering that.
+ */
+function resolveImgSrc(html, base) {
+  if (!base) return html;
+  const root = base.replace(/\/$/, "");
+  return html.replace(
+    /(<img\b[^>]*?\bsrc\s*=\s*)(["'])(.*?)\2/gi,
+    (whole, head, quote, src) => {
+      const trimmed = src.trim();
+      if (!trimmed || isResolvableUrl(trimmed)) return whole;
+      return head + quote + root + "/" + trimmed.replace(/^\.\//, "") + quote;
+    }
+  );
+}
+
 // Relative date, e.g. "3 days ago". `now` is injectable so tests stay deterministic.
 function relTime(iso, now = Date.now()) {
   const then = new Date(iso).getTime();
@@ -162,4 +194,4 @@ function merge3(ancestor, theirs, mine) {
   return out.join("\n");
 }
 
-module.exports = { resolveTarget, relTime, parseGitLog, diffOps, merge3 };
+module.exports = { resolveTarget, relTime, parseGitLog, diffOps, merge3, resolveImgSrc, isResolvableUrl };

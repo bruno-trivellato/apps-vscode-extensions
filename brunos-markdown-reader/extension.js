@@ -3,8 +3,8 @@ const path = require("path");
 const fs = require("fs");
 const { execFile } = require("child_process");
 const MarkdownIt = require("markdown-it");
-const { resolveTarget, relTime, parseGitLog, merge3 } = require("./lib/util");
-const { TABLE_CSS, EDIT_TABLE_CSS } = require("./lib/css");
+const { resolveTarget, relTime, parseGitLog, merge3, resolveImgSrc } = require("./lib/util");
+const { tableCss, editTableCss, FOLD_CSS, EDIT_FOLD_CSS, EDIT_IMG_CSS, TABLE_OVERFLOW_MODES } = require("./lib/css");
 
 const md = new MarkdownIt({ html: true, linkify: true, typographer: true });
 
@@ -89,6 +89,10 @@ function getConfig() {
     historyExpanded: c.get("historyExpanded", false),
     doubleEscToPreview: c.get("doubleEscToPreview", true),
     editMode: c.get("editMode", false),
+    collapsibleHeadings: c.get("collapsibleHeadings", true),
+    tableOverflow: TABLE_OVERFLOW_MODES.includes(c.get("tableOverflow", "center"))
+      ? c.get("tableOverflow", "center")
+      : "center",
   };
 }
 
@@ -243,7 +247,17 @@ class MarkdownEditorProvider {
 
   async resolveCustomTextEditor(document, webviewPanel, _token) {
     const webview = webviewPanel.webview;
-    webview.options = { enableScripts: true };
+    // Pictures live next to the document, so the document's folder has to be a
+    // permitted root or the webview refuses to load them. Naming any root at all
+    // replaces the default (the extension folder), so that has to be repeated
+    // here or the vendored Vditor and mermaid assets stop loading.
+    webview.options = {
+      enableScripts: true,
+      localResourceRoots: [
+        this.context.extensionUri,
+        vscode.Uri.file(path.dirname(document.uri.fsPath)),
+      ],
+    };
 
     const mermaidUri = webview.asWebviewUri(
       vscode.Uri.joinPath(this.context.extensionUri, "media", "mermaid.min.js")
@@ -255,6 +269,11 @@ class MarkdownEditorProvider {
     );
 
     const docDir = path.dirname(document.uri.fsPath);
+    // Relative image paths are written relative to the document, but the webview
+    // resolves them against vscode-webview://, where they mean nothing. This is
+    // the same folder as a URI the webview will actually serve, so a relative
+    // src can be joined onto it.
+    const docBase = webview.asWebviewUri(vscode.Uri.file(docDir)).toString();
     // set while we push Vditor's markdown back into the TextDocument, so the
     // resulting onDidChangeTextDocument doesn't re-render (and kill Vditor).
     let applyingFromWebview = false;
@@ -268,6 +287,7 @@ class MarkdownEditorProvider {
         mermaidUri,
         vditorBase,
         docDir,
+        docBase,
         gitInfo,
         getConfig()
       );
@@ -441,7 +461,12 @@ class MarkdownEditorProvider {
       cb("showGitHeader", "Show git header", config.showGitHeader) +
       cb("historyExpanded", "History expanded by default", config.historyExpanded) +
       cb("doubleEscToPreview", "Double-Esc back to preview", config.doubleEscToPreview) +
+      cb("collapsibleHeadings", "Collapsible headings (reader)", config.collapsibleHeadings) +
       cb("editMode", "Notion-like experience (beta)", config.editMode) +
+      // not a checkbox: three-state would be a lie, so flip between the two modes
+      `<label class="bmr-menu-item"><input type="checkbox" data-key="tableOverflow" data-on="center" data-off="left"${
+        config.tableOverflow === "center" ? " checked" : ""
+      }><span>Wide tables grow from centre</span></label>` +
       // an external https anchor: webviews hand these to the browser themselves,
       // and our click handlers deliberately ignore non-local hrefs
       `<div class="bmr-menu-foot">` +
@@ -486,7 +511,7 @@ class MarkdownEditorProvider {
 
   // SPIKE: experimental instant-render editor (Vditor "ir" mode). Fully
   // self-contained so the reader below stays untouched when editMode is off.
-  buildEditHtml(source, webview, vditorBase, docDir, gitInfo, config) {
+  buildEditHtml(source, webview, vditorBase, docDir, docBase, gitInfo, config) {
     const menu = this.buildMenu(config);
     const header = config.showGitHeader ? this.buildHeader(gitInfo, config.historyExpanded) : "";
     const cspSource = webview.cspSource;
@@ -516,7 +541,9 @@ class MarkdownEditorProvider {
   }
   #bmr-head { flex: none; padding: 10px 16px 0; }
   #bmr-vditor { flex: 1 1 0; min-height: 0; border: none; }
-${EDIT_TABLE_CSS}
+${editTableCss(config.tableOverflow)}
+${EDIT_IMG_CSS}
+${config.collapsibleHeadings ? EDIT_FOLD_CSS : ""}
 
   /* Vditor ships .vditor-reset at 16px, noticeably bigger than the reader.
      Scale it down and borrow the reader's font stack so both views match.
@@ -646,6 +673,9 @@ ${menu}
 <div id="bmr-head">
   <div class="bmr-head-row">
     <div class="bmr-head-git" id="bmr-git">${header}</div>
+    ${config.collapsibleHeadings
+      ? `<button class="bmr-fmt-btn" id="bmr-foldall" title="Collapse every section"><span>\u25BE</span><span>All</span></button>`
+      : ""}
     <button class="bmr-fmt-btn" id="bmr-fmt-btn" aria-pressed="false"
       title="Show/hide the formatting toolbar"><span>¶</span><span>Formatting</span></button>
   </div>
@@ -663,6 +693,7 @@ ${menu}
   const CDN = ${JSON.stringify(cdn)};
   const INITIAL = ${JSON.stringify(source)};
   const DOC_DIR = ${JSON.stringify(docDir)};
+  const DOC_BASE = ${JSON.stringify(docBase)};
   const isDark = document.body.classList.contains('vscode-dark') ||
     document.body.classList.contains('vscode-high-contrast');
 
@@ -824,7 +855,11 @@ ${LINK_TOOLTIP_JS}
     menu.querySelectorAll('input[type="checkbox"][data-key]').forEach((box) => {
       box.addEventListener('change', () => {
         flush(getEditor());
-        vscodeApi.postMessage({ type: 'setConfig', key: box.dataset.key, value: box.checked });
+        // data-on/data-off turn a checkbox into a two-value setting (tableOverflow)
+        const value = box.dataset.on
+          ? (box.checked ? box.dataset.on : box.dataset.off)
+          : box.checked;
+        vscodeApi.postMessage({ type: 'setConfig', key: box.dataset.key, value });
       });
     });
   }
@@ -880,16 +915,226 @@ ${LINK_TOOLTIP_JS}
     console.error('vditor init failed', e);
     document.getElementById('bmr-vditor').textContent = 'Vditor failed to load: ' + e;
   }
+
+  // ---- pictures ------------------------------------------------------------
+  // A relative src means "next to the document", but the webview resolves it
+  // against vscode-webview://, where it means nothing, so every one is rebased
+  // onto DOC_BASE. Two shapes need it:
+  //
+  //   real <img> elements   markdown images, and raw <img> on its own line,
+  //                         which Lute does render
+  //   html-inline spans     a raw <img> mid-sentence or in a table cell, which
+  //                         IR mode deliberately shows as its own source text
+  //
+  // Neither edit reaches the file. Lute rebuilds the markdown from its marker
+  // spans, not from src or from anything we add, and SpinVditorIRDOM discards
+  // all of it on the next keystroke, which is why this re-runs after input.
+  (function installImages() {
+    const root = () => document.querySelector('.vditor-ir .vditor-reset');
+    const resolvable = (s) => /^(?:[a-z][a-z0-9+.-]*:|\\/\\/|\\/|#)/i.test(s);
+    const base = DOC_BASE.replace(/\\/$/, '');
+
+    function rebase(src) {
+      const t = (src || '').trim();
+      if (!t || resolvable(t)) return t;
+      return base + '/' + t.replace(/^\\.\\//, '');
+    }
+
+    function decorate() {
+      const r = root();
+      if (!r) return;
+
+      for (const img of r.querySelectorAll('img')) {
+        const raw = img.getAttribute('src');
+        const next = rebase(raw);
+        if (next && next !== raw) img.setAttribute('src', next);
+      }
+
+      for (const node of r.querySelectorAll('span[data-type="html-inline"]')) {
+        if (node.hasAttribute('data-bmr-img')) continue;
+        const code = node.querySelector('code');
+        if (!code) continue;
+        const tag = code.textContent.trim();
+        if (!/^<img\\b[^>]*>$/i.test(tag)) continue;
+        const src = (/\\bsrc\\s*=\\s*["']([^"']*)["']/i.exec(tag) || [])[1];
+        if (!src) continue;
+        const url = rebase(src);
+        node.setAttribute('data-bmr-img', '');
+        node.style.backgroundImage = 'url("' + url.replace(/"/g, '%22') + '")';
+
+        // The tag may fix a width, a height, both or neither. Whatever it does
+        // not say comes from the picture's own proportions, measured off-DOM so
+        // nothing extra is ever added to the editor.
+        const attr = (name) => {
+          const m = new RegExp('\\\\b' + name + '\\\\s*=\\\\s*["\\']?(\\\\d+)', 'i').exec(tag);
+          return m ? +m[1] : 0;
+        };
+        const wantW = attr('width');
+        const wantH = attr('height');
+        const probe = new Image();
+        probe.onload = () => {
+          const ratio = probe.naturalWidth && probe.naturalHeight
+            ? probe.naturalHeight / probe.naturalWidth
+            : 0;
+          const w = wantW || (wantH && ratio ? Math.round(wantH / ratio) : probe.naturalWidth);
+          const h = wantH || (ratio ? Math.round(w * ratio) : probe.naturalHeight);
+          node.style.width = w + 'px';
+          node.style.height = h + 'px';
+        };
+        // a broken path should show the tag rather than an empty gap
+        probe.onerror = () => {
+          node.removeAttribute('data-bmr-img');
+          node.style.backgroundImage = '';
+        };
+        probe.src = url;
+      }
+    }
+
+    const startImgs = setInterval(() => { if (root()) { clearInterval(startImgs); decorate(); } }, 120);
+    let dec = null;
+    document.addEventListener('input', () => {
+      clearTimeout(dec);
+      dec = setTimeout(decorate, 350);
+    }, true);
+  })();
+
+  // ---- collapsible headings (edit mode) ------------------------------------
+  // The arrows are deliberately NOT injected into the headings: the editor is a
+  // contenteditable that Vditor serializes back to the file, so anything we put
+  // inside it can end up in your markdown. They float over the headings instead,
+  // positioned from each heading's rect.
+  //
+  // Folding sets data-bmr-hidden on the blocks of a section. That attribute is
+  // inert through Lute (checked against vditorIRDOM2Md and SpinVditorIRDOM), so
+  // a folded section still saves its full content.
+  if (${JSON.stringify(!!config.collapsibleHeadings)}) (function installEditFolds() {
+    const HEAD = /^H([1-6])$/;
+    const level = (el) => { const m = el && HEAD.exec(el.tagName); return m ? +m[1] : 0; };
+    const root = () => document.querySelector('.vditor-ir .vditor-reset');
+    let pairs = []; // { h, btn }
+
+    function sectionOf(h) {
+      const stop = level(h);
+      const out = [];
+      for (let el = h.nextElementSibling; el; el = el.nextElementSibling) {
+        const lv = level(el);
+        if (lv && lv <= stop) break;
+        out.push(el);
+      }
+      return out;
+    }
+
+    function setFolded(h, btn, folded) {
+      h.dataset.bmrFolded = folded ? '1' : '';
+      btn.textContent = folded ? '\\u25B8' : '\\u25BE';
+      btn.title = folded ? 'Expand section' : 'Collapse section';
+      btn.classList.toggle('bmr-fold-on', folded);
+      for (const el of sectionOf(h)) {
+        if (folded) el.setAttribute('data-bmr-hidden', '');
+        else el.removeAttribute('data-bmr-hidden');
+      }
+      // a nested folded heading keeps its own section shut
+      if (!folded) {
+        for (const el of sectionOf(h)) {
+          if (level(el) && el.dataset.bmrFolded) {
+            for (const inner of sectionOf(el)) inner.setAttribute('data-bmr-hidden', '');
+          }
+        }
+      }
+    }
+
+    // Vditor rebuilds blocks as you type, so rebuild the arrow set rather than
+    // trying to keep stale element references alive.
+    function rebuild() {
+      const r = root();
+      if (!r) return;
+      for (const p of pairs) p.btn.remove();
+      pairs = [];
+      for (const h of r.querySelectorAll('h1, h2, h3, h4, h5, h6')) {
+        const btn = document.createElement('button');
+        btn.className = 'bmr-fold-o';
+        btn.type = 'button';
+        btn.textContent = h.dataset.bmrFolded ? '\\u25B8' : '\\u25BE';
+        btn.title = h.dataset.bmrFolded ? 'Expand section' : 'Collapse section';
+        if (h.dataset.bmrFolded) btn.classList.add('bmr-fold-on');
+        // mousedown, not click: the editor steals focus and eats the click
+        btn.addEventListener('mousedown', (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          setFolded(h, btn, !h.dataset.bmrFolded);
+        });
+        document.body.appendChild(btn);
+        pairs.push({ h, btn });
+      }
+      place();
+    }
+
+    function place() {
+      const r = root();
+      if (!r) return;
+      const box = r.getBoundingClientRect();
+      for (const { h, btn } of pairs) {
+        const rect = h.getBoundingClientRect();
+        // hide the arrow once its heading scrolls out of the editor viewport
+        if (rect.bottom < box.top + 2 || rect.top > box.bottom - 2) {
+          btn.hidden = true;
+          continue;
+        }
+        btn.hidden = false;
+        btn.style.left = (rect.left - 19) + 'px';
+        btn.style.top = (rect.top + rect.height / 2 - 7.5) + 'px';
+      }
+    }
+
+    let queued = false;
+    function schedule() {
+      if (queued) return;
+      queued = true;
+      requestAnimationFrame(() => { queued = false; place(); });
+    }
+
+    // reveal arrows while the pointer is over the editor, like the reader's hover
+    document.addEventListener('mousemove', (e) => {
+      const r = root();
+      if (!r) return;
+      const inside = r.contains(e.target) || e.target.classList.contains('bmr-fold-o');
+      for (const { btn } of pairs) btn.classList.toggle('bmr-fold-near', inside);
+    });
+    document.addEventListener('scroll', schedule, true);
+    window.addEventListener('resize', schedule);
+
+    const start = setInterval(() => { if (root()) { clearInterval(start); rebuild(); } }, 120);
+    // Vditor re-renders on input; rebuild after it settles
+    let reb = null;
+    document.addEventListener('input', () => {
+      clearTimeout(reb);
+      reb = setTimeout(rebuild, 350);
+    }, true);
+
+    const all = document.getElementById('bmr-foldall');
+    if (all) {
+      let collapsed = false;
+      all.addEventListener('mousedown', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        collapsed = !collapsed;
+        for (const { h, btn } of pairs) setFolded(h, btn, collapsed);
+        all.firstElementChild.textContent = collapsed ? '\\u25B8' : '\\u25BE';
+        all.title = collapsed ? 'Expand every section' : 'Collapse every section';
+        place();
+      });
+    }
+  })();
 </script>
 </body>
 </html>`;
   }
 
-  buildHtml(source, webview, mermaidUri, vditorBase, docDir, gitInfo, config) {
+  buildHtml(source, webview, mermaidUri, vditorBase, docDir, docBase, gitInfo, config) {
     if (config.editMode) {
-      return this.buildEditHtml(source, webview, vditorBase, docDir, gitInfo, config);
+      return this.buildEditHtml(source, webview, vditorBase, docDir, docBase, gitInfo, config);
     }
-    const body = md.render(source);
+    const body = resolveImgSrc(md.render(source), docBase);
     const header = config.showGitHeader ? this.buildHeader(gitInfo, config.historyExpanded) : "";
     const menu = this.buildMenu(config);
     const cspSource = webview.cspSource;
@@ -921,7 +1166,8 @@ ${LINK_TOOLTIP_JS}
   pre code { background: none; padding: 0; }
   pre.mermaid { background: none; padding: 0; text-align: center; }
   blockquote { border-left: 4px solid var(--vscode-panel-border, #8884); margin: 0; padding-left: 1em; opacity: .85; }
-${TABLE_CSS}
+${tableCss(config.tableOverflow)}
+${config.collapsibleHeadings ? FOLD_CSS : ""}
   a { color: var(--vscode-textLink-foreground); }
   img { max-width: 100%; }
 
@@ -1042,12 +1288,18 @@ ${LINK_TOOLTIP_CSS}
 </head>
 <body>
 ${menu}
+${
+  config.collapsibleHeadings
+    ? `<button class="bmr-foldall" id="bmr-foldall" title="Collapse every section">▾ All</button>`
+    : ""
+}
 ${header}
 ${body}
 <script src="${mermaidUri}"></script>
 <script>
   const vscodeApi = acquireVsCodeApi();
   const DOC_DIR = ${JSON.stringify(docDir)};
+  const COLLAPSIBLE_HEADINGS = ${JSON.stringify(!!config.collapsibleHeadings)};
 
   // Is this a local/relative link (not an in-page anchor or external scheme)?
   function isLocalHref(href) {
@@ -1095,7 +1347,11 @@ ${LINK_TOOLTIP_JS}
     });
     menu.querySelectorAll('input[type="checkbox"][data-key]').forEach((box) => {
       box.addEventListener('change', () => {
-        vscodeApi.postMessage({ type: 'setConfig', key: box.dataset.key, value: box.checked });
+        // data-on/data-off turn a checkbox into a two-value setting (tableOverflow)
+        const value = box.dataset.on
+          ? (box.checked ? box.dataset.on : box.dataset.off)
+          : box.checked;
+        vscodeApi.postMessage({ type: 'setConfig', key: box.dataset.key, value });
       });
     });
   })();
@@ -1277,6 +1533,98 @@ ${LINK_TOOLTIP_JS}
   } catch (e) {
     console.error('mermaid init failed', e);
   }
+
+  // ---- collapsible headings ------------------------------------------------
+  // A section is every sibling after a heading up to the next heading of the
+  // same or higher level, which is how markdown nests without a real tree.
+  // Folds are runtime only: the reader re-renders on every file change, so
+  // they reset by design.
+  if (COLLAPSIBLE_HEADINGS) (function installFolds() {
+    const HEAD = /^H([1-6])$/;
+    const level = (el) => {
+      const m = el && HEAD.exec(el.tagName);
+      return m ? +m[1] : 0;
+    };
+    const heads = [...document.querySelectorAll('body > h1, body > h2, body > h3, body > h4, body > h5, body > h6')];
+    if (!heads.length) {
+      const all = document.getElementById('bmr-foldall');
+      if (all) all.remove(); // nothing to fold, so don't offer to
+      return;
+    }
+
+    function paint(h, folded) {
+      const btn = h.querySelector('.bmr-fold');
+      if (!btn) return;
+      btn.textContent = folded ? '\\u25B8' : '\\u25BE';
+      btn.setAttribute('aria-expanded', folded ? 'false' : 'true');
+      btn.title = folded ? 'Expand section' : 'Collapse section';
+    }
+
+    // Hide or reveal one section. When revealing, a nested heading that is
+    // itself folded keeps its own section hidden, so unfolding a parent does
+    // not blow open everything underneath it.
+    function apply(h, folded) {
+      const stop = level(h);
+      let el = h.nextElementSibling;
+      while (el) {
+        const lv = level(el);
+        if (lv && lv <= stop) break;
+        if (folded) {
+          el.setAttribute('data-bmr-hidden', '');
+          el = el.nextElementSibling;
+          continue;
+        }
+        el.removeAttribute('data-bmr-hidden');
+        if (lv && el.classList.contains('bmr-folded')) {
+          let inner = el.nextElementSibling;
+          while (inner) {
+            const il = level(inner);
+            if (il && il <= lv) break;
+            inner.setAttribute('data-bmr-hidden', '');
+            inner = inner.nextElementSibling;
+          }
+          el = inner;
+        } else {
+          el = el.nextElementSibling;
+        }
+      }
+    }
+
+    function setFolded(h, folded) {
+      h.classList.toggle('bmr-folded', folded);
+      paint(h, folded);
+      apply(h, folded);
+    }
+
+    for (const h of heads) {
+      const btn = document.createElement('button');
+      btn.className = 'bmr-fold';
+      btn.type = 'button';
+      h.insertBefore(btn, h.firstChild);
+      paint(h, false);
+      btn.addEventListener('click', (e) => {
+        e.preventDefault();
+        e.stopPropagation(); // never let this reach the double-click-to-edit handler
+        setFolded(h, !h.classList.contains('bmr-folded'));
+      });
+      // the button lives inside the heading, so shield the edit gesture too
+      btn.addEventListener('dblclick', (e) => { e.preventDefault(); e.stopPropagation(); });
+    }
+
+    const all = document.getElementById('bmr-foldall');
+    if (all) {
+      let collapsed = false;
+      all.addEventListener('click', (e) => {
+        e.stopPropagation();
+        collapsed = !collapsed;
+        // outermost first, so nested sections are already hidden by their parent
+        for (const h of heads) setFolded(h, collapsed);
+        all.textContent = collapsed ? '\\u25B8 All' : '\\u25BE All';
+        all.title = collapsed ? 'Expand every section' : 'Collapse every section';
+      });
+      all.addEventListener('dblclick', (e) => { e.preventDefault(); e.stopPropagation(); });
+    }
+  })();
 </script>
 </body>
 </html>`;

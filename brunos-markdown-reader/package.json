@@ -2,7 +2,7 @@
   "name": "brunos-markdown-reader",
   "displayName": "Bruno's Markdown Reader",
   "description": "Opens Markdown files pre-rendered (reading mode), with mermaid diagram support and a beta Notion-like editing experience.",
-  "version": "0.0.18",
+  "version": "0.0.23",
   "publisher": "brunotrivellato",
   "engines": {
     "vscode": "^1.75.0"
@@ -78,6 +78,24 @@
           "type": "boolean",
           "default": false,
           "description": "BETA: Notion-like experience. Replace the rendered reader with the Vditor instant-render (IR) editor, editing the file in place."
+        },
+        "brunosMarkdownReader.collapsibleHeadings": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show a fold arrow next to each heading in the reader, to collapse everything under it. Reader only. Folds reset when the file is reopened."
+        },
+        "brunosMarkdownReader.tableOverflow": {
+          "type": "string",
+          "enum": [
+            "center",
+            "left"
+          ],
+          "default": "center",
+          "enumDescriptions": [
+            "Grow the table both ways from the centre of the page.",
+            "Keep the table's left edge on the text column and grow to the right only."
+          ],
+          "description": "How a table wider than the text column grows. Applies to both the reader and edit mode."
         }
       }
     },
@@ -109,6 +127,6 @@
   },
   "devDependencies": {
     "mocha": "^11.1.0",
-    "vditor": "^3.11.2"
+    "vditor": "^3.11.3"
   }
 }
