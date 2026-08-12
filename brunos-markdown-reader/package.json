@@ -2,7 +2,7 @@
   "name": "brunos-markdown-reader",
   "displayName": "Bruno's Markdown Reader",
   "description": "Opens Markdown files pre-rendered (reading mode), with mermaid diagram support and a beta Notion-like editing experience.",
-  "version": "0.0.28",
+  "version": "0.0.30",
   "publisher": "brunotrivellato",
   "engines": {
     "vscode": "^1.75.0"
@@ -88,6 +88,12 @@
           "type": "boolean",
           "default": true,
           "description": "EXPERIMENTAL: drag the divider in a table's header row to set a column's width by hand. A resized table wraps its cells instead of growing. Widths are per session and reset when the file is reopened."
+        },
+        "brunosMarkdownReader.maxColumnWidth": {
+          "type": "number",
+          "default": 420,
+          "minimum": 0,
+          "description": "How wide a table column may get, in pixels, before its text wraps. Without a cap a long cell stretches its column across the whole pane on one line. 0 turns the cap off. A single inline code span longer than this still stays whole, widening its column past the cap."
         },
         "brunosMarkdownReader.tableOverflow": {
           "type": "string",

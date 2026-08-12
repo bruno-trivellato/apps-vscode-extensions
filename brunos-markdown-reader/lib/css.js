@@ -43,13 +43,31 @@ function maxWidth(overflow, edge) {
   return overflow === "left" ? edge : "94vw";
 }
 
+// How wide any single column may get before its text wraps.
+//
+// `width: max-content` on the table means "wide enough that nothing wraps", so
+// one long cell stretches its column as far as it needs. Measured on a
+// two-column table whose second cell holds a sentence: the column came out
+// 1257px wide, one line of text across the whole pane. A cap of 420px brings it
+// to 447 and wraps it over three lines.
+//
+// A cap cannot shrink a column below its min-content, and `code` keeps its
+// nowrap below, so a single inline route longer than the cap widens its column
+// past it rather than spilling out of the cell. That is the intended trade: a
+// route stays whole, a sentence wraps.
+//
+// 0 means no cap.
+function columnCap(px) {
+  return px > 0 ? `\n    max-width: ${px}px;` : "";
+}
+
 // Reader tables. Every rule below fixes a bug seen in the wild, so read
 // test/css.test.js before "tidying" any of it.
 //
 // The failure it replaced: a 4-column table with long routes could not fit the
 // 860px prose column, so the browser starved the narrowest column until
 // `/v1/categories` wrapped as "/v1/ca" / "tegori" / "es".
-function tableCss(overflow) {
+function tableCss(overflow, maxColumnWidth = 0) {
   return `
   table {
     /* block, not table, so the element can own a horizontal scrollbar instead
@@ -66,7 +84,7 @@ function tableCss(overflow) {
     border: 1px solid var(--vscode-panel-border, #8884);
     padding: 6px 12px;
     /* short cells used to sit mid-row, adrift from the key they belong to */
-    vertical-align: top;
+    vertical-align: top;${columnCap(maxColumnWidth)}
   }
   th { text-align: left; }
   /* Routes and ids stay whole. Without this a squeezed cell breaks them at
@@ -88,7 +106,7 @@ function tableCss(overflow) {
 // Our <style> is emitted after Vditor's <link>, so equal specificity wins on
 // order. The code selector below deliberately repeats Vditor's :not() chain to
 // out-specify it (0,3,3 against 0,3,1) instead of reaching for !important.
-function editTableCss(overflow) {
+function editTableCss(overflow, maxColumnWidth = 0) {
   return `
   .vditor-reset table {
     /* Vditor already sets display:block + overflow:auto, so it can scroll.
@@ -102,7 +120,16 @@ function editTableCss(overflow) {
     word-break: normal;
     white-space: nowrap;
   }
-  .vditor-reset table td, .vditor-reset table th { vertical-align: top; }
+  .vditor-reset table td, .vditor-reset table th {
+    vertical-align: top;${maxColumnWidth > 0 ? `
+    /* Vditor's index.css:1005 puts white-space:nowrap on the CELL, not just on
+       code, so in edit mode nothing in a table ever wrapped and a cell grew to
+       whatever one line needed. Measured on a 7-column table: min-content 4108px
+       against a 1316px box, and the widest column alone was 1317px. Undoing it
+       is what makes the cap below mean anything, and it brings that table down
+       to 1447px. Equal specificity to Vditor's rule, and we come later. */
+    white-space: normal;${columnCap(maxColumnWidth)}` : ""}
+  }
   .vditor-reset table th { text-align: left; }`;
 }
 

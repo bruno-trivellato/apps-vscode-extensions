@@ -219,3 +219,51 @@ describe("edit mode fold CSS", () => {
     assert.match(EDIT_FOLD_CSS, /\.bmr-fold-on/);
   });
 });
+
+// The per-column cap. `width: max-content` means "wide enough that nothing
+// wraps", so without this one long cell stretches its column across the pane.
+describe("maxColumnWidth setting", () => {
+  for (const [name, build] of [["reader", tableCss], ["edit mode", editTableCss]]) {
+    it(`caps ${name} columns when a width is given`, () => {
+      const css = build("center", 420);
+      assert.match(css, /max-width:\s*420px/);
+    });
+
+    it(`leaves ${name} columns uncapped at 0`, () => {
+      const css = build("center", 0);
+      assert.doesNotMatch(css, /max-width:\s*0px/);
+      assert.doesNotMatch(css, /max-width:\s*\d+px/);
+    });
+
+    it(`defaults ${name} to uncapped when no width is passed`, () => {
+      assert.doesNotMatch(build("center"), /max-width:\s*\d+px/);
+    });
+  }
+
+  it("caps the cell, not the table, so the column is what shrinks", () => {
+    const decls = rule(tableCss("center", 420), "th, td");
+    assert.match(decls, /max-width:\s*420px/);
+  });
+
+  it("lets edit-mode cells wrap, or the cap does nothing", () => {
+    // vditor index.css:1005 sets white-space:nowrap on the cell itself, so in
+    // edit mode nothing in a table ever wrapped: measured min-content 4108px
+    // against a 1316px box. The cap is inert until that is undone.
+    const decls = rule(editTableCss("center", 420), ".vditor-reset table td, .vditor-reset table th");
+    assert.match(decls, /white-space:\s*normal/);
+    assert.match(decls, /max-width:\s*420px/);
+  });
+
+  it("leaves edit-mode cell wrapping alone when uncapped", () => {
+    const decls = rule(editTableCss("center", 0), ".vditor-reset table td, .vditor-reset table th");
+    assert.doesNotMatch(decls, /white-space:\s*normal/);
+  });
+
+  it("keeps code nowrap even when capped, so routes stay whole", () => {
+    // a cap that broke `/v1/categories` into fragments would recreate the
+    // original bug the nowrap was added for
+    for (const build of [tableCss, editTableCss]) {
+      assert.match(build("center", 420), /white-space:\s*nowrap/);
+    }
+  });
+});

@@ -9,7 +9,7 @@ VSCode extension that opens `.md` files **rendered inline** (reading mode) inste
 - **Git header**: shows the last commit (author, date, message) plus an expandable, scrollable file history. Click any commit to open its diff in a new tab.
 - **Fullscreen diagrams**: hover a mermaid diagram and click ⛶ to open a pan/zoom viewer. Middle-drag pans, scroll zooms, `Esc` closes.
 - **Edit and preview**: double-click the page to switch to the text editor. Press `Esc` twice to go back to preview.
-- **Options menu**: the `⋯` button (top-right) toggles the settings below without leaving the file.
+- **Options menu**: the `⋯` button (top-right) changes the settings below without leaving the file. **Max column width** is a number you can dial right there.
 - **Notion-like experience (beta)**: swaps the reader for the [Vditor](https://b3log.org/vditor) instant-render editor, where markdown formats itself as you type. Edits go straight to the file, so dirty state, `Cmd`+`S` and undo work as usual. Click **¶ Formatting** in the header for the toolbar. Off by default.
 - **Link tooltip**: hover any link to see the full path it resolves to, flagged in red when the file is not there.
 
@@ -23,6 +23,7 @@ VSCode extension that opens `.md` files **rendered inline** (reading mode) inste
 | `brunosMarkdownReader.editMode` | `false` | **Beta.** Notion-like experience: replace the reader with the Vditor instant-render editor. |
 | `brunosMarkdownReader.collapsibleHeadings` | `true` | Show a fold arrow next to each heading, so you can collapse everything under it. Folds reset when you reopen the file. |
 | `brunosMarkdownReader.resizableColumns` | `true` | **Experimental.** Drag the divider in a table header to set a column width by hand. Widths reset when you reopen the file. |
+| `brunosMarkdownReader.maxColumnWidth` | `420` | How wide a table column may get, in pixels, before its text wraps. `0` turns the cap off. Long inline code stays whole and widens its column past the cap. |
 | `brunosMarkdownReader.tableOverflow` | `center` | Where a wide table grows. `center` grows both ways from the middle, `left` keeps the left edge and grows right. |
 
 ### Notes on the Notion-like experience

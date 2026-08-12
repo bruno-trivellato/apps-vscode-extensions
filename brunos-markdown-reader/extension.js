@@ -94,6 +94,9 @@ function getConfig() {
     tableOverflow: TABLE_OVERFLOW_MODES.includes(c.get("tableOverflow", "center"))
       ? c.get("tableOverflow", "center")
       : "center",
+    // 0 disables the cap. Anything smaller than a cap that could hold a word is
+    // noise, so a positive value is floored rather than trusted.
+    maxColumnWidth: Math.max(0, Math.round(Number(c.get("maxColumnWidth", 420)) || 0)),
   };
 }
 
@@ -127,7 +130,20 @@ const MENU_FOOT_CSS = `
     opacity: 1;
     background: var(--vscode-list-hoverBackground, #8881);
     border-color: var(--vscode-focusBorder, #8888);
-  }`;
+  }
+  /* A number row, for the settings a checkbox cannot express. The label takes
+     the slack so every input in the menu lines up on the right edge. */
+  .bmr-menu-num { cursor: default; }
+  .bmr-menu-num > span { flex: 1; min-width: 0; }
+  .bmr-menu-num input {
+    flex: none; width: 56px; cursor: text;
+    padding: 1px 4px; font: inherit; font-size: 12px;
+    color: var(--vscode-input-foreground, inherit);
+    background: var(--vscode-input-background, #8882);
+    border: 1px solid var(--vscode-input-border, #8886);
+    border-radius: 3px;
+  }
+  .bmr-menu-num input:focus { outline: 1px solid var(--vscode-focusBorder, #8888); }`;
 
 // ---- link hover tooltip -----------------------------------------------------
 // Shared by the reader and edit mode. They locate links differently, so each
@@ -659,6 +675,12 @@ class MarkdownEditorProvider {
       `<label class="bmr-menu-item"><input type="checkbox" data-key="tableOverflow" data-on="center" data-off="left"${
         config.tableOverflow === "center" ? " checked" : ""
       }><span>Wide tables grow from centre</span></label>` +
+      // not a checkbox either: this one is a pixel count. 0 turns the cap off,
+      // which is why the row reads as a width and not as an on/off.
+      `<label class="bmr-menu-item bmr-menu-num" title="How wide a table column may get before its text wraps. 0 turns the cap off.">` +
+      `<span>Max column width</span>` +
+      `<input type="number" data-key="maxColumnWidth" min="0" step="20" value="${config.maxColumnWidth}">` +
+      `</label>` +
       // an external https anchor: webviews hand these to the browser themselves,
       // and our click handlers deliberately ignore non-local hrefs
       `<div class="bmr-menu-foot">` +
@@ -733,7 +755,7 @@ class MarkdownEditorProvider {
   }
   #bmr-head { flex: none; padding: 10px 16px 0; }
   #bmr-vditor { flex: 1 1 0; min-height: 0; border: none; }
-${editTableCss(config.tableOverflow)}
+${editTableCss(config.tableOverflow, config.maxColumnWidth)}
 ${EDIT_IMG_CSS}
 ${config.resizableColumns ? RESIZE_CSS : ""}
 ${config.collapsibleHeadings ? EDIT_FOLD_CSS : ""}
@@ -1052,6 +1074,16 @@ ${LINK_TOOLTIP_JS}
         const value = box.dataset.on
           ? (box.checked ? box.dataset.on : box.dataset.off)
           : box.checked;
+        vscodeApi.postMessage({ type: 'setConfig', key: box.dataset.key, value });
+      });
+    });
+    // 'change', not 'input': input fires per keystroke, and each save re-renders
+    // the whole webview, so typing "420" would fire on 4, then 42, then 420.
+    menu.querySelectorAll('input[type="number"][data-key]').forEach((box) => {
+      box.addEventListener('change', () => {
+        const value = Math.max(0, Math.round(Number(box.value) || 0));
+        box.value = value;
+        flush(getEditor());
         vscodeApi.postMessage({ type: 'setConfig', key: box.dataset.key, value });
       });
     });
@@ -1486,7 +1518,7 @@ ${RESIZE_JS}
   pre code { background: none; padding: 0; }
   pre.mermaid { background: none; padding: 0; text-align: center; }
   blockquote { border-left: 4px solid var(--vscode-panel-border, #8884); margin: 0; padding-left: 1em; opacity: .85; }
-${tableCss(config.tableOverflow)}
+${tableCss(config.tableOverflow, config.maxColumnWidth)}
 ${config.collapsibleHeadings ? FOLD_CSS : ""}
   a { color: var(--vscode-textLink-foreground); }
   img { max-width: 100%; }
@@ -1681,6 +1713,15 @@ ${LINK_TOOLTIP_JS}
         const value = box.dataset.on
           ? (box.checked ? box.dataset.on : box.dataset.off)
           : box.checked;
+        vscodeApi.postMessage({ type: 'setConfig', key: box.dataset.key, value });
+      });
+    });
+    // 'change', not 'input': input fires per keystroke, and each save re-renders
+    // the whole webview, so typing "420" would fire on 4, then 42, then 420.
+    menu.querySelectorAll('input[type="number"][data-key]').forEach((box) => {
+      box.addEventListener('change', () => {
+        const value = Math.max(0, Math.round(Number(box.value) || 0));
+        box.value = value;
         vscodeApi.postMessage({ type: 'setConfig', key: box.dataset.key, value });
       });
     });
