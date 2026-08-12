@@ -3,7 +3,8 @@ const path = require("path");
 const fs = require("fs");
 const { execFile } = require("child_process");
 const MarkdownIt = require("markdown-it");
-const { resolveTarget, relTime, parseGitLog } = require("./lib/util");
+const { resolveTarget, relTime, parseGitLog, merge3 } = require("./lib/util");
+const { TABLE_CSS, EDIT_TABLE_CSS } = require("./lib/css");
 
 const md = new MarkdownIt({ html: true, linkify: true, typographer: true });
 
@@ -322,16 +323,22 @@ class MarkdownEditorProvider {
           .update(msg.key, msg.value, vscode.ConfigurationTarget.Global);
         return;
       }
-      // SPIKE (edit mode): Vditor sends back the whole markdown → replace the
-      // document's full range. VSCode then owns dirty state / Cmd+S / undo.
+      // SPIKE (edit mode): Vditor sends back the whole markdown, but that text
+      // is Lute reprinting the parse tree, so it has lost the file's hard
+      // breaks and table padding everywhere, not just where the user typed.
+      // Merge over msg.baseline (Lute's view of the file when the editor
+      // opened) so only genuinely edited lines move. See merge3 in lib/util.
       if (msg.type === "save" && typeof msg.text === "string") {
         const current = document.getText();
-        if (msg.text === current) return;
+        const merged = typeof msg.baseline === "string"
+          ? merge3(msg.baseline, current, msg.text)
+          : msg.text;
+        if (merged === current) return;
         const edit = new vscode.WorkspaceEdit();
         edit.replace(
           document.uri,
           new vscode.Range(document.positionAt(0), document.positionAt(current.length)),
-          msg.text
+          merged
         );
         applyingFromWebview = true;
         const done = () => {
@@ -509,6 +516,7 @@ class MarkdownEditorProvider {
   }
   #bmr-head { flex: none; padding: 10px 16px 0; }
   #bmr-vditor { flex: 1 1 0; min-height: 0; border: none; }
+${EDIT_TABLE_CSS}
 
   /* Vditor ships .vditor-reset at 16px, noticeably bigger than the reader.
      Scale it down and borrow the reader's font stack so both views match.
@@ -660,6 +668,11 @@ ${menu}
 
   let ready = false;
   let saveTimer = null;
+  // Last text we know the document holds, as Vditor serializes it. getValue()
+  // is Lute's re-render of the DOM, not the file, so it normalizes hard breaks
+  // and table padding. Writing it back when nothing was edited rewrites the
+  // file just for clicking around, so flush() compares against this first.
+  let lastSaved = null;
 
   // ---- link navigation (same deal as the reader) ---------------------------
 
@@ -740,7 +753,13 @@ ${LINK_TOOLTIP_JS}
     if (saveTimer) { clearTimeout(saveTimer); saveTimer = null; }
     if (!ready || !editor) return;
     clearLinkTag();
-    vscodeApi.postMessage({ type: 'save', text: editor.getValue() });
+    const text = editor.getValue();
+    if (text === lastSaved) return; // nothing actually changed, leave the file alone
+    // lastSaved is also the merge ancestor: the write-back never touches the
+    // DOM, so it stays exactly what getValue() returned for the saved file.
+    const baseline = lastSaved;
+    lastSaved = text;
+    vscodeApi.postMessage({ type: 'save', text, baseline });
   }
 
   // "Formatting" button: reveals Vditor's own toolbar under our header
@@ -845,6 +864,9 @@ ${LINK_TOOLTIP_JS}
       },
       after: function () {
         vditor.setValue(INITIAL, true); // true → also clears the undo stack
+        // Baseline is what Vditor makes of the file, not the file itself, so a
+        // no-op session compares equal even though the two differ on disk.
+        lastSaved = vditor.getValue();
         ready = true;
       },
       input: function () {
@@ -899,8 +921,7 @@ ${LINK_TOOLTIP_JS}
   pre code { background: none; padding: 0; }
   pre.mermaid { background: none; padding: 0; text-align: center; }
   blockquote { border-left: 4px solid var(--vscode-panel-border, #8884); margin: 0; padding-left: 1em; opacity: .85; }
-  table { border-collapse: collapse; }
-  th, td { border: 1px solid var(--vscode-panel-border, #8884); padding: 6px 12px; }
+${TABLE_CSS}
   a { color: var(--vscode-textLink-foreground); }
   img { max-width: 100%; }
 

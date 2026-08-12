@@ -1,6 +1,6 @@
 const assert = require("assert");
 const path = require("path");
-const { resolveTarget, relTime, parseGitLog } = require("../lib/util");
+const { resolveTarget, relTime, parseGitLog, diffOps, merge3 } = require("../lib/util");
 
 const BASE = "/repo/docs";
 
@@ -208,5 +208,102 @@ describe("parseGitLog", () => {
     );
     assert.strictEqual(commits.length, 1);
     assert.strictEqual(commits[0].subject, "line one\nline two");
+  });
+});
+
+describe("diffOps", () => {
+  const L = (s) => s.split("\n");
+
+  it("returns nothing for identical input", () => {
+    assert.deepStrictEqual(diffOps(L("a\nb\nc"), L("a\nb\nc")), []);
+  });
+
+  it("isolates a single changed line", () => {
+    assert.deepStrictEqual(diffOps(L("a\nb\nc"), L("a\nB\nc")), [
+      { start: 1, end: 2, lines: ["B"] },
+    ]);
+  });
+
+  it("reports two separate edits as two ops", () => {
+    const ops = diffOps(L("a\nb\nc\nd\ne"), L("A\nb\nc\nd\nE"));
+    assert.strictEqual(ops.length, 2);
+    assert.strictEqual(ops[0].start, 0);
+    assert.strictEqual(ops[1].end, 5);
+  });
+
+  it("handles a pure insertion as a zero-width op", () => {
+    assert.deepStrictEqual(diffOps(L("a\nc"), L("a\nb\nc")), [
+      { start: 1, end: 1, lines: ["b"] },
+    ]);
+  });
+
+  it("handles a pure deletion", () => {
+    assert.deepStrictEqual(diffOps(L("a\nb\nc"), L("a\nc")), [
+      { start: 1, end: 2, lines: [] },
+    ]);
+  });
+
+  it("round-trips through the ops it reports", () => {
+    const a = L("one\ntwo\nthree\nfour\nfive");
+    const b = L("one\n2\nthree\nfour\n5\nsix");
+    const out = [];
+    let at = 0;
+    for (const op of diffOps(a, b)) {
+      out.push(...a.slice(at, op.start), ...op.lines);
+      at = op.end;
+    }
+    out.push(...a.slice(at));
+    assert.deepStrictEqual(out, b);
+  });
+});
+
+describe("merge3", () => {
+  // Lute drops the trailing double-space hard break and re-pads the table.
+  const ORIGIN = [
+    "# Title",
+    "",
+    "**Feature:** Multi Category  ",
+    "**Scope:** framing only  ",
+    "",
+    "| # | Invariant |",
+    "|---|---|",
+    "| 1 | must be 100% |",
+  ].join("\n");
+  const BASELINE = [
+    "# Title",
+    "",
+    "**Feature:** Multi Category",
+    "**Scope:** framing only",
+    "",
+    "",
+    "| # | Invariant   |",
+    "| - | ----------- |",
+    "| 1 | must be 100% |",
+  ].join("\n");
+
+  it("writes the file back untouched when nothing was edited", () => {
+    assert.strictEqual(merge3(BASELINE, ORIGIN, BASELINE), ORIGIN);
+  });
+
+  it("keeps hard breaks and table padding when an unrelated line changes", () => {
+    const next = BASELINE.replace("# Title", "# Renamed");
+    const out = merge3(BASELINE, ORIGIN, next);
+    assert.ok(out.startsWith("# Renamed"), "the edit landed");
+    assert.ok(out.includes("**Feature:** Multi Category  \n"), "hard break survived");
+    assert.ok(out.includes("|---|---|"), "table padding survived");
+  });
+
+  it("lets the user's edit win where both sides touched the same line", () => {
+    const next = BASELINE.replace("| 1 | must be 100% |", "| 1 | must be 50% |");
+    const out = merge3(BASELINE, ORIGIN, next);
+    assert.ok(out.includes("must be 50%"), "the edit landed");
+    assert.ok(out.includes("**Feature:** Multi Category  \n"), "untouched hard break survived");
+  });
+
+  it("applies an inserted line without disturbing the rest", () => {
+    const next = BASELINE.replace("# Title", "# Title\n\nnew paragraph");
+    const out = merge3(BASELINE, ORIGIN, next);
+    assert.ok(out.includes("new paragraph"));
+    assert.ok(out.includes("**Scope:** framing only  "), "hard break survived");
   });
 });
