@@ -10,11 +10,26 @@ const TABLE_OVERFLOW_MODES = ["center", "left"];
 // margin-left:50% puts the left edge on the centre of the containing block,
 // then the transform pulls it back by half its own width. Both are needed:
 // margin-left alone just shoves the table right.
+//
+// The negative margin-right is what stops that trick leaking. A transform moves
+// the table on screen but NOT in layout, so the box still measures as if it
+// started at the centre, and the pane it lives in grows a horizontal scrollbar
+// into empty space. Measured on a 7-column table at a 1400px viewport: the
+// editor pane reported scrollWidth 2316 against clientWidth 1400, so 916px of
+// nothing you could scroll to the right of a table that already fitted.
+//
+// Pulling the end of the box back by the same distance the start was pushed
+// out (50%) plus the widest the table may ever be (94vw, the cap below) leaves
+// the layout footprint no bigger than the pane. Over-cancelling is harmless:
+// margins do not feed into a used width that is already max-content. Unlike
+// symmetric negative margins, which do the same job, this keeps a table
+// narrower than the page centred rather than pinning it to the left gutter.
 function breakout(overflow) {
   return overflow === "left"
     ? ""
     : `
     margin-left: 50%;
+    margin-right: calc(-50% - 94vw);
     transform: translateX(-50%);`;
 }
 
@@ -181,4 +196,31 @@ const EDIT_IMG_CSS = `
     height: auto !important;
   }`;
 
-module.exports = { tableCss, editTableCss, FOLD_CSS, EDIT_FOLD_CSS, EDIT_IMG_CSS, TABLE_OVERFLOW_MODES };
+// Drag a column edge to set its width by hand. Shared by both views, because
+// the handles have to work the same way in each: they are free-floating
+// elements on <body>, positioned over each header cell's right edge from its
+// rect, never inside the table. In edit mode that is not a preference, it is
+// the rule, since anything inside the editor is serialized into the file.
+//
+// The widths themselves are applied through a single stylesheet in <head>, for
+// the same reason: no attribute or element is ever put on the table.
+const RESIZE_CSS = `
+  .bmr-colh {
+    position: fixed; z-index: 45;
+    width: 9px; margin-left: -4px; padding: 0;
+    border: none; background: none;
+    cursor: col-resize;
+    opacity: 0; transition: opacity .12s;
+  }
+  /* the visible hairline, inset so the hit area stays comfortably wider */
+  .bmr-colh::after {
+    content: ""; position: absolute; top: 0; bottom: 0; left: 4px;
+    width: 1px; background: var(--vscode-focusBorder, #4a9eff);
+  }
+  .bmr-colh.bmr-colh-near { opacity: .35; }
+  .bmr-colh:hover, .bmr-colh.bmr-colh-live { opacity: 1; }
+  .bmr-colh[hidden] { display: none; }
+  /* while dragging, stop the pointer selecting text under the cursor */
+  body.bmr-colh-dragging { user-select: none; cursor: col-resize; }`;
+
+module.exports = { tableCss, editTableCss, FOLD_CSS, EDIT_FOLD_CSS, EDIT_IMG_CSS, RESIZE_CSS, TABLE_OVERFLOW_MODES };

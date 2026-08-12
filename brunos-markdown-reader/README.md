@@ -21,6 +21,9 @@ VSCode extension that opens `.md` files **rendered inline** (reading mode) inste
 | `brunosMarkdownReader.historyExpanded` | `false` | Start the commit History panel expanded. |
 | `brunosMarkdownReader.doubleEscToPreview` | `true` | Press `Esc` twice to return to preview while editing. |
 | `brunosMarkdownReader.editMode` | `false` | **Beta.** Notion-like experience: replace the reader with the Vditor instant-render editor. |
+| `brunosMarkdownReader.collapsibleHeadings` | `true` | Show a fold arrow next to each heading, so you can collapse everything under it. Folds reset when you reopen the file. |
+| `brunosMarkdownReader.resizableColumns` | `true` | **Experimental.** Drag the divider in a table header to set a column width by hand. Widths reset when you reopen the file. |
+| `brunosMarkdownReader.tableOverflow` | `center` | Where a wide table grows. `center` grows both ways from the middle, `left` keeps the left edge and grows right. |
 
 ### Notes on the Notion-like experience
 

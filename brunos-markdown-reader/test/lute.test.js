@@ -76,6 +76,23 @@ describe("lute ignores our image decoration", () => {
     });
   }
 
+  it("ignores hand-set column widths", () => {
+    // Dragging a column edge writes inline widths onto the table and its cells.
+    // Same bargain as the images: styling only, and only safe while Lute keeps
+    // ignoring it. If this breaks, resizing a table starts editing the file.
+    const md = "| # | Need |\n|---|------|\n| a | some text |\n| b | more text |\n";
+    const dom = lute.Md2VditorIRDOM(md);
+    const sized = dom
+      .replace("<table", '<table style="width:420px;max-width:none;margin-left:0"')
+      .replace(/<th>/g, '<th style="width:160px">')
+      .replace(/<td>/g, '<td style="width:160px;max-width:160px">');
+    assert.strictEqual(lute.VditorIRDOM2Md(sized), lute.VditorIRDOM2Md(dom));
+    assert.strictEqual(
+      lute.VditorIRDOM2Md(lute.SpinVditorIRDOM(sized)),
+      lute.VditorIRDOM2Md(dom)
+    );
+  });
+
   it("keeps the raw tag reconstructable from the marker, not from src", () => {
     const dom = lute.Md2VditorIRDOM(docs["raw img in a table cell"]);
     const out = lute.VditorIRDOM2Md(decorate(dom));

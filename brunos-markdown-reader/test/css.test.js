@@ -127,10 +127,30 @@ describe("tableOverflow setting", () => {
 
     it(`anchors ${name} tables left in "left" mode`, () => {
       const css = build("left");
-      // the breakout is what shifts the table; both halves must go together or
+      // the breakout is what shifts the table; all of it must go together or
       // the table ends up pushed off to one side
       assert.doesNotMatch(css, /margin-left:\s*50%/);
       assert.doesNotMatch(css, /transform:\s*translateX\(-50%\)/);
+      assert.doesNotMatch(css, /margin-right:\s*calc\(\s*-/);
+    });
+
+    it(`keeps ${name} tables from scrolling the pane sideways in "center" mode`, () => {
+      // A transform moves the table on screen but not in layout, so without
+      // this the pane measures the table as starting at its centre and grows a
+      // horizontal scrollbar into empty space. Measured at 1400px: scrollWidth
+      // 2316 against clientWidth 1400.
+      assert.match(build("center"), /margin-right:\s*calc\(-50%\s*-\s*94vw\)/);
+    });
+
+    it(`cancels exactly what the ${name} breakout pushes out`, () => {
+      // The negative margin has to cover margin-left plus the widest the table
+      // may get, so the two numbers are tied. Change the cap and this fails.
+      const css = build("center");
+      const cap = /max-width:\s*(\d+)vw/.exec(css);
+      assert.ok(cap, "center mode must cap the width in vw");
+      const cancel = /margin-right:\s*calc\(-50%\s*-\s*(\d+)vw\)/.exec(css);
+      assert.ok(cancel, "center mode must cancel the breakout");
+      assert.strictEqual(cancel[1], cap[1], "the cancellation must match the width cap");
     });
 
     it(`keeps ${name} tables sized to content in both modes`, () => {

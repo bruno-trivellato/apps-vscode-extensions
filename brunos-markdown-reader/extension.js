@@ -4,7 +4,7 @@ const fs = require("fs");
 const { execFile } = require("child_process");
 const MarkdownIt = require("markdown-it");
 const { resolveTarget, relTime, parseGitLog, merge3, resolveImgSrc } = require("./lib/util");
-const { tableCss, editTableCss, FOLD_CSS, EDIT_FOLD_CSS, EDIT_IMG_CSS, TABLE_OVERFLOW_MODES } = require("./lib/css");
+const { tableCss, editTableCss, FOLD_CSS, EDIT_FOLD_CSS, EDIT_IMG_CSS, RESIZE_CSS, TABLE_OVERFLOW_MODES } = require("./lib/css");
 
 const md = new MarkdownIt({ html: true, linkify: true, typographer: true });
 
@@ -90,6 +90,7 @@ function getConfig() {
     doubleEscToPreview: c.get("doubleEscToPreview", true),
     editMode: c.get("editMode", false),
     collapsibleHeadings: c.get("collapsibleHeadings", true),
+    resizableColumns: c.get("resizableColumns", true),
     tableOverflow: TABLE_OVERFLOW_MODES.includes(c.get("tableOverflow", "center"))
       ? c.get("tableOverflow", "center")
       : "center",
@@ -150,6 +151,196 @@ const LINK_TOOLTIP_CSS = `
   .bmr-tip[hidden] { display: none; }
   .bmr-tip--on { opacity: 1; }
   .bmr-tip-missing { color: var(--vscode-editorError-foreground, #f14c4c); }`;
+
+// ---- manual column widths ---------------------------------------------------
+// Shared by both views. `rootFor` is the only difference between them: the
+// reader hands back the body, edit mode the Vditor content element.
+//
+// Widths are inline styles on the table and its header cells. That is verified
+// inert: Lute rebuilds the markdown from cell contents and ignores the style
+// attribute, through both vditorIRDOM2Md and SpinVditorIRDOM, so a resized
+// table is never a changed file. Tests cover it. Spin does wipe the styles as
+// you type, which is why the widths are kept here and reapplied after input.
+//
+// Only the dragged column changes size, so the table grows or shrinks with it.
+// Shrinking is the useful direction: a column narrower than its content makes
+// the cells wrap instead of the table running off the side.
+const RESIZE_JS = `
+  function installColumnResize(rootFor) {
+    const MIN = 44;               // narrower than this and a column is unusable
+    const widths = new Map();     // table index -> px per column, null = untouched
+    const totals = new Map();     // table index -> px for the table as a whole
+    let handles = [];             // { btn, table, ti, ci }
+
+    const tablesOf = () => {
+      const r = rootFor();
+      return r ? Array.prototype.slice.call(r.querySelectorAll('table')) : [];
+    };
+
+    // The header row drives the columns. Fall back to the first row for a table
+    // written without one.
+    function headOf(t) {
+      const row = t.querySelector('thead tr') || t.querySelector('tr');
+      return row ? Array.prototype.slice.call(row.children) : [];
+    }
+
+    // Only columns you actually dragged get a width; the rest stay null and keep
+    // sizing themselves. Pinning every column and the table total looks tidier
+    // but behaves badly: a column cannot go below its longest word, so the total
+    // no longer adds up and the browser takes the difference out of the
+    // neighbours, shrinking columns nobody touched.
+    function applyTo(t, ti) {
+      const w = widths.get(ti);
+      if (!w) return;
+      const cells = headOf(t);
+      // the document changed shape under us, so the remembered widths are junk
+      if (cells.length !== w.length) { widths.delete(ti); return; }
+      // A resized table stops sizing to its content. While it is max-content it
+      // is by definition wide enough for nothing to wrap, so narrowing a column
+      // only narrows the table and the text still runs on one line. The total
+      // follows the drag instead, which is what lets cells actually wrap.
+      const total = totals.get(ti);
+      if (total != null) {
+        t.style.width = total + 'px';
+        t.style.maxWidth = 'none';
+        // The centre breakout offsets the table by margin-left:50% and pulls it
+        // back with a transform, which eats half the room it has to grow into.
+        // A table sized by hand gives that up and sits on the text column.
+        // margin-right goes back to 0 with it: that negative margin exists only
+        // to cancel the breakout's phantom scroll, and left in place it would
+        // stop the pane scrolling to a table dragged wider than the pane.
+        t.style.marginLeft = '0';
+        t.style.marginRight = '0';
+        t.style.transform = 'none';
+      }
+
+      // Every cell in the column, not just the header. Auto table layout takes
+      // a column's preferred width from the widest cell in it, so styling the
+      // header alone leaves the body cells free to keep pushing it wider.
+      const rows = t.querySelectorAll('tr');
+      for (let i = 0; i < w.length; i++) {
+        if (w[i] == null) continue;
+        const px = w[i] + 'px';
+        cells[i].style.width = px;
+        for (const row of rows) {
+          const cell = row.children[i];
+          if (cell) { cell.style.width = px; cell.style.maxWidth = px; }
+        }
+      }
+    }
+
+    function place() {
+      const r = rootFor();
+      if (!r) return;
+      const box = r.getBoundingClientRect();
+      const top = Math.max(0, box.top);
+      const bottom = Math.min(window.innerHeight, box.bottom);
+      for (const h of handles) {
+        const cells = headOf(h.table);
+        const cell = cells[h.ci];
+        if (!cell) { h.btn.hidden = true; continue; }
+        const c = cell.getBoundingClientRect();
+        const t = h.table.getBoundingClientRect();
+        // hide once the table leaves the viewport, or once this particular edge
+        // scrolls out of the table's own horizontal scroller
+        const visible = t.bottom > top && t.top < bottom &&
+          c.right > t.left - 1 && c.right < t.right + 1;
+        if (!visible) { h.btn.hidden = true; continue; }
+        h.btn.hidden = false;
+        h.btn.style.left = c.right + 'px';
+        h.btn.style.top = Math.max(t.top, top) + 'px';
+        h.btn.style.height = Math.max(0, Math.min(t.bottom, bottom) - Math.max(t.top, top)) + 'px';
+      }
+    }
+
+    function startDrag(e, h) {
+      e.preventDefault();
+      e.stopPropagation();
+      const cells = headOf(h.table);
+      if (!widths.has(h.ti)) widths.set(h.ti, cells.map(() => null));
+      const start = widths.get(h.ti).slice();
+      const from = Math.round(cells[h.ci].getBoundingClientRect().width);
+      const total0 = Math.round(h.table.getBoundingClientRect().width);
+      const floor = MIN * cells.length;
+      const x0 = e.clientX;
+      document.body.classList.add('bmr-colh-dragging');
+      h.btn.classList.add('bmr-colh-live');
+
+      const move = (ev) => {
+        const dx = ev.clientX - x0;
+        const next = start.slice();
+        next[h.ci] = Math.max(MIN, from + dx);
+        widths.set(h.ti, next);
+        // only this column changes, so the table moves by the same amount
+        totals.set(h.ti, Math.max(floor, total0 + dx));
+        applyTo(h.table, h.ti);
+        place();
+      };
+      const up = () => {
+        document.body.classList.remove('bmr-colh-dragging');
+        h.btn.classList.remove('bmr-colh-live');
+        window.removeEventListener('pointermove', move);
+        window.removeEventListener('pointerup', up);
+        // A column cannot go below its longest unbreakable word, so the browser
+        // may not have given us what we asked for. Adopt what it settled on for
+        // this column, else the handle drifts off the edge it is meant to sit
+        // on. The untouched columns stay null and keep sizing themselves.
+        const settled = widths.get(h.ti).slice();
+        const now = headOf(h.table)[h.ci];
+        if (now) settled[h.ci] = Math.round(now.getBoundingClientRect().width);
+        widths.set(h.ti, settled);
+        totals.set(h.ti, Math.round(h.table.getBoundingClientRect().width));
+        applyTo(h.table, h.ti);
+        place();
+      };
+      window.addEventListener('pointermove', move);
+      window.addEventListener('pointerup', up);
+    }
+
+    function rebuild() {
+      for (const h of handles) h.btn.remove();
+      handles = [];
+      const list = tablesOf();
+      for (let ti = 0; ti < list.length; ti++) {
+        const table = list[ti];
+        applyTo(table, ti);
+        const cells = headOf(table);
+        // the last edge has no column to its right, so there is nothing to drag
+        for (let ci = 0; ci < cells.length - 1; ci++) {
+          const btn = document.createElement('div');
+          btn.className = 'bmr-colh';
+          btn.title = 'Drag to resize this column';
+          const h = { btn: btn, table: table, ti: ti, ci: ci };
+          btn.addEventListener('pointerdown', (e) => startDrag(e, h));
+          document.body.appendChild(btn);
+          handles.push(h);
+        }
+      }
+      place();
+    }
+
+    // Reveal only the handles of the table under the pointer, so a page of
+    // tables does not light up all at once.
+    document.addEventListener('mousemove', (e) => {
+      const over = e.target && e.target.closest ? e.target.closest('table') : null;
+      for (const h of handles) {
+        h.btn.classList.toggle('bmr-colh-near', !!over && over === h.table);
+      }
+    });
+    document.addEventListener('scroll', place, true);
+    window.addEventListener('resize', place);
+
+    // Widths only, no handle churn. Spin wipes the inline widths on every
+    // keystroke, and a resized table that snaps back to its content width and
+    // then in again is the same flicker the pictures caused, so edit mode calls
+    // this in the keystroke's own tick and leaves the handles to the debounce.
+    rebuild.reapply = function () {
+      const list = tablesOf();
+      for (let ti = 0; ti < list.length; ti++) applyTo(list[ti], ti);
+    };
+    return rebuild;
+  }
+`;
 
 const LINK_TOOLTIP_JS = `
   // Show a link's resolved absolute path on hover. The extension does the
@@ -462,6 +653,7 @@ class MarkdownEditorProvider {
       cb("historyExpanded", "History expanded by default", config.historyExpanded) +
       cb("doubleEscToPreview", "Double-Esc back to preview", config.doubleEscToPreview) +
       cb("collapsibleHeadings", "Collapsible headings (reader)", config.collapsibleHeadings) +
+      cb("resizableColumns", "Drag to resize table columns", config.resizableColumns) +
       cb("editMode", "Notion-like experience (beta)", config.editMode) +
       // not a checkbox: three-state would be a lie, so flip between the two modes
       `<label class="bmr-menu-item"><input type="checkbox" data-key="tableOverflow" data-on="center" data-off="left"${
@@ -543,6 +735,7 @@ class MarkdownEditorProvider {
   #bmr-vditor { flex: 1 1 0; min-height: 0; border: none; }
 ${editTableCss(config.tableOverflow)}
 ${EDIT_IMG_CSS}
+${config.resizableColumns ? RESIZE_CSS : ""}
 ${config.collapsibleHeadings ? EDIT_FOLD_CSS : ""}
 
   /* Vditor ships .vditor-reset at 16px, noticeably bigger than the reader.
@@ -929,10 +1122,21 @@ ${LINK_TOOLTIP_JS}
   // Neither edit reaches the file. Lute rebuilds the markdown from its marker
   // spans, not from src or from anything we add, and SpinVditorIRDOM discards
   // all of it on the next keystroke, which is why this re-runs after input.
+  //
+  // That re-run has to happen in the SAME TICK as the keystroke. Left on a
+  // timer, every keypress blanked the pictures for a third of a second, and a
+  // table holding one lost the height and width they were giving it. Measured:
+  // 403px tall and 1692 wide with them, 223 by 1617 without, so the table
+  // reflowed twice per character and its horizontal scroll got clamped to the
+  // narrower width on the way through. That was the flicker.
+  //
+  // Nothing here may be async, then. Sizes measured once are cached by url so a
+  // picture already seen is redressed immediately, with no frame in between.
   (function installImages() {
     const root = () => document.querySelector('.vditor-ir .vditor-reset');
     const resolvable = (s) => /^(?:[a-z][a-z0-9+.-]*:|\\/\\/|\\/|#)/i.test(s);
     const base = DOC_BASE.replace(/\\/$/, '');
+    const sizes = new Map();   // url -> { w, h } | 'broken', filled by the probe
 
     function rebase(src) {
       const t = (src || '').trim();
@@ -959,8 +1163,8 @@ ${LINK_TOOLTIP_JS}
         const src = (/\\bsrc\\s*=\\s*["']([^"']*)["']/i.exec(tag) || [])[1];
         if (!src) continue;
         const url = rebase(src);
-        node.setAttribute('data-bmr-img', '');
-        node.style.backgroundImage = 'url("' + url.replace(/"/g, '%22') + '")';
+        const known = sizes.get(url);
+        if (known === 'broken') continue;   // show the tag, not an empty gap
 
         // The tag may fix a width, a height, both or neither. Whatever it does
         // not say comes from the picture's own proportions, measured off-DOM so
@@ -971,31 +1175,147 @@ ${LINK_TOOLTIP_JS}
         };
         const wantW = attr('width');
         const wantH = attr('height');
-        const probe = new Image();
-        probe.onload = () => {
-          const ratio = probe.naturalWidth && probe.naturalHeight
-            ? probe.naturalHeight / probe.naturalWidth
-            : 0;
-          const w = wantW || (wantH && ratio ? Math.round(wantH / ratio) : probe.naturalWidth);
-          const h = wantH || (ratio ? Math.round(w * ratio) : probe.naturalHeight);
+
+        const dress = (nat) => {
+          node.setAttribute('data-bmr-img', '');
+          node.style.backgroundImage = 'url("' + url.replace(/"/g, '%22') + '")';
+          const ratio = nat.w && nat.h ? nat.h / nat.w : 0;
+          const w = wantW || (wantH && ratio ? Math.round(wantH / ratio) : nat.w);
+          const h = wantH || (ratio ? Math.round(w * ratio) : nat.h);
           node.style.width = w + 'px';
           node.style.height = h + 'px';
         };
-        // a broken path should show the tag rather than an empty gap
-        probe.onerror = () => {
-          node.removeAttribute('data-bmr-img');
-          node.style.backgroundImage = '';
+
+        // seen before: dress it now, in this tick, so nothing ever blinks
+        if (known) { dress(known); continue; }
+
+        // first sight of this url: measure once, then every later keystroke is
+        // served from the cache
+        const probe = new Image();
+        probe.onload = () => {
+          const nat = { w: probe.naturalWidth, h: probe.naturalHeight };
+          sizes.set(url, nat);
+          dress(nat);
         };
+        probe.onerror = () => { sizes.set(url, 'broken'); };
         probe.src = url;
       }
     }
 
     const startImgs = setInterval(() => { if (root()) { clearInterval(startImgs); decorate(); } }, 120);
-    let dec = null;
+
+    // Bubble phase, not capture: Vditor rebuilds the block in its own handler,
+    // so this runs right after, on the same event, before the browser paints.
+    // Registered before installScrollKeep's restore on purpose, so the table is
+    // back at full size by the time its scroll position is put back.
+    document.addEventListener('input', decorate);
+  })();
+
+  // ---- manual column widths (edit mode) ------------------------------------
+  // SpinVditorIRDOM rebuilds the blocks as you type and drops our inline
+  // widths. The widths go back on in the keystroke's own tick, for the same
+  // reason the pictures do: a table that snaps to its content width and back
+  // flickers, and it drags its horizontal scroll along with it. The drag
+  // handles are only overlays, so they can wait for the debounce.
+  if (${JSON.stringify(!!config.resizableColumns)}) (function installCols() {
+${RESIZE_JS}
+    const rebuild = installColumnResize(() => document.querySelector('.vditor-ir .vditor-reset'));
+    const startCols = setInterval(() => {
+      if (document.querySelector('.vditor-ir .vditor-reset')) { clearInterval(startCols); rebuild(); }
+    }, 120);
+    document.addEventListener('input', rebuild.reapply);
+    let rc = null;
     document.addEventListener('input', () => {
-      clearTimeout(dec);
-      dec = setTimeout(decorate, 350);
+      clearTimeout(rc);
+      rc = setTimeout(rebuild, 350);
     }, true);
+  })();
+
+  // ---- keep a scrolled table where it was (edit mode) ----------------------
+  // Type in a table that is scrolled to the right and the view jumps: Vditor
+  // runs SpinVditorIRDOM on input and hands back a brand new table element,
+  // whose scrollLeft is 0, and the browser then reveals the caret from there.
+  //
+  // Both halves ride the SAME input event, which is dispatched synchronously:
+  //
+  //   capture on document   before Vditor's handler  -> snapshot every scrollLeft
+  //   bubble on document    after Vditor's handler   -> put them back
+  //
+  // The bubble half is the whole point. Vditor swaps the table during its own
+  // handler, so by the time the event finishes bubbling the new element is
+  // already in the DOM and can be scrolled back before the browser has painted
+  // once. Restoring a frame later instead (requestAnimationFrame) does put the
+  // number back, but the wrong frame reaches the screen first and the table
+  // visibly flickers. Measured against a real Vditor offline.
+  //
+  // The old elements are gone, so tables are matched by index.
+  //
+  // This block sits last on purpose. scrollLeft is clamped to the table's
+  // current width, so everything that decides that width - the pictures, the
+  // column widths - has to have gone back on first, and both of those also
+  // listen on the bubble phase. Handlers run in registration order, so source
+  // order here IS the running order. The couple of later passes are belt and
+  // braces for anything that resizes the table after the fact.
+  (function installScrollKeep() {
+    const root = () => document.querySelector('.vditor-ir .vditor-reset');
+
+    // the pane that scrolls vertically, whichever ancestor Vditor made it
+    function scroller() {
+      for (let el = root(); el; el = el.parentElement) {
+        if (el.scrollHeight > el.clientHeight + 1) return el;
+      }
+      return null;
+    }
+
+    let snap = null;
+
+    function apply(withTop) {
+      const r = root();
+      if (!r || !snap) return false;
+      const tables = r.querySelectorAll('table');
+      let touched = false;
+      const n = Math.min(tables.length, snap.left.length);
+      for (let i = 0; i < n; i++) {
+        // never scroll a table further right than it already sat
+        if (snap.left[i] > tables[i].scrollLeft) {
+          tables[i].scrollLeft = snap.left[i];
+          touched = true;
+        }
+      }
+      // the vertical shift rides along with the horizontal one, so only undo it
+      // when a table actually had to be put back. Otherwise this would fight the
+      // legitimate scroll that keeps the caret visible on a new line.
+      if (touched && withTop && snap.pane && snap.pane.isConnected) {
+        snap.pane.scrollTop = snap.top;
+      }
+      return touched;
+    }
+
+    function frames(left, withTop) {
+      if (left <= 0) return;
+      requestAnimationFrame(() => { apply(withTop); frames(left - 1, withTop); });
+    }
+
+    // capture: runs before Vditor's own handler, so this still sees the old
+    // elements and where they were scrolled to
+    document.addEventListener('input', () => {
+      const r = root();
+      if (!r) return;
+      const left = Array.prototype.map.call(r.querySelectorAll('table'), (t) => t.scrollLeft);
+      if (!left.some((x) => x > 0)) { snap = null; return; }
+      const pane = scroller();
+      snap = { left, pane, top: pane ? pane.scrollTop : 0 };
+    }, true);
+
+    // bubble: same event, same tick, but Vditor has now rebuilt the block
+    let late = null;
+    document.addEventListener('input', () => {
+      if (!snap) return;
+      apply(true);
+      frames(2, true);
+      clearTimeout(late);
+      late = setTimeout(() => { apply(false); }, 420);
+    });
   })();
 
   // ---- collapsible headings (edit mode) ------------------------------------
@@ -1284,6 +1604,7 @@ ${config.collapsibleHeadings ? FOLD_CSS : ""}
   }
 ${MENU_FOOT_CSS}
 ${LINK_TOOLTIP_CSS}
+${config.resizableColumns ? RESIZE_CSS : ""}
 </style>
 </head>
 <body>
@@ -1321,6 +1642,15 @@ ${body}
     });
   }
   tagLinks();
+
+  // ---- manual column widths (reader) ---------------------------------------
+  if (${JSON.stringify(!!config.resizableColumns)}) (function installCols() {
+${RESIZE_JS}
+    // nothing re-renders the reader, so one pass is enough; folding only moves
+    // tables around, and the handles re-measure on scroll
+    installColumnResize(() => document.body)();
+  })();
+
 ${LINK_TOOLTIP_JS}
   installLinkTooltip((t) => {
     const a = t && t.closest ? t.closest('a[href]') : null;
