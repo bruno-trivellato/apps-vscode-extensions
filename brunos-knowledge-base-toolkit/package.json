@@ -1,6 +1,6 @@
 {
   "name": "brunos-knowledge-base-toolkit",
-  "displayName": "Bruno's Knowledge Base Toolkit",
+  "displayName": "Bruno's Agentic Knowledge Base Toolkit",
   "description": "Opens knowledge-base files the way they are meant to be read: Markdown pre-rendered with mermaid diagrams, .diff and .patch coloured green and red.",
   "version": "0.1.5",
   "publisher": "brunotrivellato",
