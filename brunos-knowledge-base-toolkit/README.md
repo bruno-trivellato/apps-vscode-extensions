@@ -18,7 +18,7 @@ Opens `.md` files **rendered inline** (reading mode) instead of raw text. It dra
 - **Rendered on open**: `.md` shows as a formatted reading view with mermaid diagrams. It re-renders live on change and follows the light/dark theme.
 - **Links**: click a relative/local link to navigate (VSCode back/forward works). `Cmd`/`Ctrl`+click opens a new tab. Right-click for *Open*, *Open to the Side*, *Copy Link Path*.
 - **Git header**: shows the last commit (author, date, message) plus an expandable, scrollable file history. Click any commit to open its diff in a new tab.
-- **Fullscreen diagrams**: hover a mermaid diagram and click ⛶ to open a pan/zoom viewer. Middle-drag pans, scroll zooms, `Esc` closes.
+- **Fullscreen diagrams**: hover a mermaid diagram and click ⛶ to open a pan/zoom viewer. Middle-drag pans, scroll zooms, `Esc` closes. Works in the reader **and** in the Notion-like editor.
 - **Edit and preview**: double-click the page to switch to the text editor. Press `Esc` twice to go back to preview.
 - **Options menu**: the `⋯` button (top-right) changes the settings below without leaving the file. **Max column width** is a number you can dial right there, and **Theme** is a dropdown.
 - **Dark and light**: the reader follows your system theme through VSCode, so it goes dark when your Mac does. The page, mermaid diagrams and code highlighting all move together. Set **Theme** to `light` or `dark` if you want the reader pinned to one, whatever VSCode is doing.
@@ -49,6 +49,7 @@ This is a spike, so it's worth trying but expectations should stay low:
 - The formatting toolbar is Vditor's own, hidden behind the **¶ Formatting** button so it stays out of the way.
 - It runs under a looser CSP than the reader. It needs `'unsafe-eval'` for Vditor's bundled mermaid/markmap, plus a `blob:` worker for graphviz. The reader keeps the strict policy.
 - Vditor's assets are vendored under `media/vditor`, for the same reason mermaid is: the webview CSP blocks CDNs.
+- The fullscreen diagram button is a single floating element in `<body>`, not something added next to the diagram. Vditor renders mermaid by replacing the `innerHTML` of `.language-mermaid`, and Lute reads that same DOM back to rebuild the markdown that gets written to the file. Wrapping the diagram there could corrupt the document, and anything placed inside it is destroyed on the next re-render. So the button only reads bounding boxes and never touches the editor's DOM. A test enforces this.
 
 ## Diff Viewer
 
@@ -109,6 +110,7 @@ renderers/
   diff.js             the .diff/.patch custom editor
 lib/
   util.js, css.js     markdown helpers
+  diagram-zoom.js     fullscreen mermaid viewer, shared by both markdown views
   diff-parse.js       patch parser
   diff-css.js         patch styles
   diff-html.js        patch page

@@ -5,6 +5,7 @@ const { execFile } = require("child_process");
 const MarkdownIt = require("markdown-it");
 const { resolveTarget, relTime, parseGitLog, merge3, resolveImgSrc } = require("../lib/util");
 const { tableCss, editTableCss, FOLD_CSS, EDIT_FOLD_CSS, EDIT_IMG_CSS, RESIZE_CSS, TABLE_OVERFLOW_MODES, THEMES, themeCss, isDarkTheme } = require("../lib/css");
+const { MODAL_CSS, READER_WRAP_CSS, HOVER_BTN_CSS, ZOOM_JS, EDIT_HOVER_JS } = require("../lib/diagram-zoom");
 
 const md = new MarkdownIt({ html: true, linkify: true, typographer: true });
 
@@ -910,6 +911,12 @@ ${config.collapsibleHeadings ? EDIT_FOLD_CSS : ""}
   .bmr-menu-item input { cursor: pointer; margin: 0; }
 ${MENU_FOOT_CSS}
 ${LINK_TOOLTIP_CSS}
+
+  /* floating expand button shown over the hovered diagram */
+${HOVER_BTN_CSS}
+
+  /* fullscreen modal with pan/zoom */
+${MODAL_CSS}
 </style>
 </head>
 <body>
@@ -1516,6 +1523,13 @@ ${RESIZE_JS}
       });
     }
   })();
+
+  // ---- fullscreen diagrams -------------------------------------------------
+  // Vditor renders mermaid by replacing the innerHTML of .language-mermaid, and
+  // Lute reads that same DOM back to rebuild the file. So the button lives in
+  // <body> and only reads bounding boxes; nothing here touches the editor's DOM.
+${ZOOM_JS}
+${EDIT_HOVER_JS}
 </script>
 </body>
 </html>`;
@@ -1631,50 +1645,10 @@ ${config.collapsibleHeadings ? FOLD_CSS : ""}
   .bmr-menu-item input { cursor: pointer; margin: 0; }
 
   /* wrapper + expand button shown on diagram hover */
-  .mermaid-wrap { position: relative; display: block; text-align: center; margin: 1em 0; }
-  .mermaid-wrap svg { width: 100%; max-width: 100% !important; height: auto; }
-  .mermaid-wrap .expand-btn {
-    position: absolute; top: 8px; right: 8px;
-    opacity: 0; transition: opacity .15s, background .15s;
-    width: 26px; height: 26px; padding: 0;
-    display: flex; align-items: center; justify-content: center;
-    background: color-mix(in srgb, var(--vscode-editor-foreground, #888) 12%, transparent);
-    color: var(--vscode-editor-foreground, #ccc);
-    border: none; border-radius: 5px; cursor: pointer;
-    font-size: 14px; line-height: 1;
-  }
-  .mermaid-wrap:hover .expand-btn { opacity: .55; }
-  .mermaid-wrap .expand-btn:hover { opacity: 1; background: color-mix(in srgb, var(--vscode-editor-foreground, #888) 22%, transparent); }
+${READER_WRAP_CSS}
 
-  /* modal fullscreen com pan/zoom */
-  .mermaid-modal {
-    position: fixed; inset: 0; z-index: 9999;
-    background: var(--vscode-editor-background, #1e1e1e);
-    overflow: hidden;
-  }
-  .mermaid-modal.panning { cursor: grabbing; }
-  .mermaid-stage { position: absolute; top: 0; left: 0; transform-origin: 0 0; }
-  .mermaid-stage svg { max-width: none !important; height: auto; display: block; }
-  .mermaid-toolbar {
-    position: fixed; top: 14px; right: 14px; z-index: 10000;
-    display: flex; gap: 6px;
-  }
-  .mermaid-toolbar button {
-    background: var(--vscode-button-secondaryBackground, #3a3d41);
-    color: var(--vscode-button-secondaryForeground, #fff);
-    border: 1px solid var(--vscode-panel-border, #8884);
-    border-radius: 6px; cursor: pointer;
-    min-width: 34px; height: 30px; font-size: 15px; line-height: 1;
-  }
-  .mermaid-toolbar button:hover { background: var(--vscode-button-background, #0e639c); }
-  .mermaid-hint {
-    position: fixed; bottom: 14px; left: 50%; transform: translateX(-50%);
-    z-index: 10000; font-size: 12px; opacity: .6;
-    color: var(--vscode-editor-foreground);
-    background: var(--vscode-editor-background, #1e1e1e);
-    padding: 4px 10px; border-radius: 6px;
-    border: 1px solid var(--vscode-panel-border, #8884);
-  }
+  /* fullscreen modal with pan/zoom */
+${MODAL_CSS}
 ${MENU_FOOT_CSS}
 ${LINK_TOOLTIP_CSS}
 ${config.resizableColumns ? RESIZE_CSS : ""}
@@ -1801,13 +1775,15 @@ ${LINK_TOOLTIP_JS}
     : document.body.classList.contains('vscode-dark') ||
       document.querySelector('body')?.dataset?.vscodeThemeKind?.includes('dark');
 
-  let modalOpen = false;
+${ZOOM_JS}
+
+  const modalIsOpen = () => window.bmrZoom && window.bmrZoom.isOpen();
 
   // single-click on a link → let the extension resolve & open local/relative
   // paths through VSCode (so back/forward navigation works). External schemes
   // (http:, https:, mailto:, vscode:, …) and in-page #anchors keep default behavior.
   document.addEventListener('click', (e) => {
-    if (modalOpen) return;
+    if (modalIsOpen()) return;
     const a = e.target.closest('a');
     if (!a) return;
     const href = a.getAttribute('href');
@@ -1820,7 +1796,7 @@ ${LINK_TOOLTIP_JS}
 
   // double-click on the page (outside a diagram/link/modal) → back to the text editor
   document.addEventListener('dblclick', (e) => {
-    if (modalOpen) return;
+    if (modalIsOpen()) return;
     if (e.target.closest('a')) return;
     if (e.target.closest('.mermaid-wrap')) return; // diagrams are interactive
     if (e.target.closest('.git-header')) return;    // header controls are interactive
@@ -1843,107 +1819,10 @@ ${LINK_TOOLTIP_JS}
       btn.addEventListener('click', (ev) => {
         ev.stopPropagation();
         const svg = el.querySelector('svg');
-        if (svg) openFullscreen(svg);
+        if (svg && window.bmrZoom) window.bmrZoom.open(svg);
       });
       wrap.appendChild(btn);
     });
-  }
-
-  function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
-
-  function openFullscreen(svgEl) {
-    modalOpen = true;
-    const modal = document.createElement('div');
-    modal.className = 'mermaid-modal';
-    const stage = document.createElement('div');
-    stage.className = 'mermaid-stage';
-    stage.appendChild(svgEl.cloneNode(true));
-    modal.appendChild(stage);
-
-    const bar = document.createElement('div');
-    bar.className = 'mermaid-toolbar';
-    const mk = (label, title, fn) => {
-      const b = document.createElement('button');
-      b.textContent = label; b.title = title;
-      b.addEventListener('click', (e) => { e.stopPropagation(); fn(); });
-      bar.appendChild(b);
-      return b;
-    };
-    modal.appendChild(bar);
-
-    const hint = document.createElement('div');
-    hint.className = 'mermaid-hint';
-    hint.textContent = 'Middle button (hold) to pan · scroll to zoom · Esc to close';
-    modal.appendChild(hint);
-
-    document.body.appendChild(modal);
-
-    let scale = 1, tx = 0, ty = 0;
-    const applyT = () => { stage.style.transform =
-      'translate(' + tx + 'px,' + ty + 'px) scale(' + scale + ')'; };
-
-    function fit() {
-      scale = 1; tx = 0; ty = 0; applyT();
-      const svg = stage.querySelector('svg');
-      const r = svg.getBoundingClientRect();
-      const W = modal.clientWidth, H = modal.clientHeight;
-      const pad = 60;
-      scale = clamp(Math.min((W - pad) / r.width, (H - pad) / r.height), 0.1, 4);
-      tx = (W - r.width * scale) / 2;
-      ty = (H - r.height * scale) / 2;
-      applyT();
-    }
-
-    function zoomAt(mx, my, factor) {
-      const ns = clamp(scale * factor, 0.1, 12);
-      tx = mx - (mx - tx) * (ns / scale);
-      ty = my - (my - ty) * (ns / scale);
-      scale = ns; applyT();
-    }
-
-    mk('+', 'Zoom in', () => { const r = modal.getBoundingClientRect(); zoomAt(r.width / 2, r.height / 2, 1.25); });
-    mk('−', 'Zoom out', () => { const r = modal.getBoundingClientRect(); zoomAt(r.width / 2, r.height / 2, 0.8); });
-    mk('⤢', 'Fit to screen', fit);
-    mk('✕', 'Fechar (Esc)', close);
-
-    // scroll wheel = zoom centered on the cursor
-    modal.addEventListener('wheel', (e) => {
-      e.preventDefault();
-      const r = modal.getBoundingClientRect();
-      zoomAt(e.clientX - r.left, e.clientY - r.top, e.deltaY < 0 ? 1.12 : 1 / 1.12);
-    }, { passive: false });
-
-    // middle button (wheel) hold + drag = pan · left button stays free to select
-    let dragging = false, lx = 0, ly = 0;
-    modal.addEventListener('mousedown', (e) => {
-      if (e.button !== 1) return;
-      if (e.target.closest('.mermaid-toolbar')) return;
-      e.preventDefault();
-      dragging = true; lx = e.clientX; ly = e.clientY;
-      modal.classList.add('panning');
-    });
-    modal.addEventListener('auxclick', (e) => { if (e.button === 1) e.preventDefault(); });
-    window.addEventListener('mousemove', onMove);
-    function onMove(e) {
-      if (!dragging) return;
-      tx += e.clientX - lx; ty += e.clientY - ly;
-      lx = e.clientX; ly = e.clientY; applyT();
-    }
-    window.addEventListener('mouseup', onUp);
-    function onUp() { if (dragging) { dragging = false; modal.classList.remove('panning'); } }
-
-    function onKey(e) { if (e.key === 'Escape') close(); }
-    window.addEventListener('keydown', onKey);
-
-    function close() {
-      window.removeEventListener('mousemove', onMove);
-      window.removeEventListener('mouseup', onUp);
-      window.removeEventListener('keydown', onKey);
-      modal.remove();
-      modalOpen = false;
-    }
-
-    fit();
   }
 
   try {
@@ -2147,4 +2026,8 @@ function register(context) {
   updateEscapeContext(); // default to disarmed
 }
 
-module.exports = { register };
+// MarkdownEditorProvider is exported for the tests only: both pages are built
+// from template literals, where an undefined identifier inside an inline
+// <script> survives `node -c` and only fails in the webview. The tests build the
+// real pages and parse every script. See test/webview-scripts.test.js.
+module.exports = { register, MarkdownEditorProvider };
