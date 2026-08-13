@@ -71,7 +71,7 @@ A removed line starting with `--` looks exactly like a `--- a/file` header. Text
 ```bash
 npm install
 npx @vscode/vsce package --allow-missing-repository
-code --install-extension brunos-knowledge-base-*.vsix --force
+code --install-extension brunos-knowledge-base-toolkit-*.vsix --force
 # then: Cmd+Shift+P -> Developer: Reload Window
 ```
 
@@ -120,7 +120,7 @@ media/                vendored mermaid and Vditor
 - Two custom editor contributions, both `priority: default`: `*.md` and `*.diff`/`*.patch`.
 - `media/mermaid.min.js` and `media/vditor/` are vendored because the webview CSP blocks CDNs, so they must stay committed.
 - The diff webview runs under `script-src 'none'`. A test checks the page has no `<script>`, and syntax-checks any that shows up later. An undefined name inside a template-literal script passes `node -c` and would only break in the GUI.
-- Uninstall: `code --uninstall-extension brunotrivellato.brunos-knowledge-base`
+- Uninstall: `code --uninstall-extension brunotrivellato.brunos-knowledge-base-toolkit`
 - This replaces the separate `brunos-markdown-reader` and `brunos-diff-viewer` extensions. Uninstall both, or two extensions fight over the same `viewType`.
 
 ## Credits

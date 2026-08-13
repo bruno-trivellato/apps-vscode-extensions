@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Publish brunos-knowledge-base to the VS Code Marketplace.
+# Publish brunos-knowledge-base-toolkit to the VS Code Marketplace.
 #
 # Usage:
 #   export VSCE_PAT='your-azure-devops-token'   # never hardcode it in a file
@@ -42,4 +42,4 @@ BUMP="${1:-}"
 echo ">> Publishing as publisher '$PUBLISHER'${BUMP:+ (version bump: $BUMP)}…"
 npx --yes @vscode/vsce publish $BUMP -p "$VSCE_PAT"
 
-echo ">> Done. Check: https://marketplace.visualstudio.com/items?itemName=$PUBLISHER.brunos-knowledge-base"
+echo ">> Done. Check: https://marketplace.visualstudio.com/items?itemName=$PUBLISHER.brunos-knowledge-base-toolkit"

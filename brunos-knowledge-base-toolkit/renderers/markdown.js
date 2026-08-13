@@ -104,7 +104,7 @@ function getConfig() {
 }
 
 const MARKETPLACE_URL =
-  "https://marketplace.visualstudio.com/items?itemName=brunotrivellato.brunos-knowledge-base";
+  "https://marketplace.visualstudio.com/items?itemName=brunotrivellato.brunos-knowledge-base-toolkit";
 
 // straight from the manifest, so the menu can never drift from the real version
 const { version: VERSION } = require("../package.json");

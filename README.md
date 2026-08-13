@@ -6,11 +6,11 @@ Monorepo of Bruno's personal VSCode extensions. Each subfolder is a standalone e
 
 | Extension | Description |
 |-----------|-------------|
-| [brunos-knowledge-base](./brunos-knowledge-base/) | **Bruno's Knowledge Base Toolkit.** Opens knowledge-base files rendered instead of raw. One handler per file type: `.md` rendered inline with mermaid, `.diff`/`.patch` coloured green and red. |
+| [brunos-knowledge-base-toolkit](./brunos-knowledge-base-toolkit/) | **Bruno's Knowledge Base Toolkit.** Opens knowledge-base files rendered instead of raw. One handler per file type: `.md` rendered inline with mermaid, `.diff`/`.patch` coloured green and red. |
 
 ### Superseded
 
-Both folders below were merged into `brunos-knowledge-base`. They are kept until the merged extension has been used for a while, then they get deleted.
+Both folders below were merged into `brunos-knowledge-base-toolkit`. They are kept until the merged extension has been used for a while, then they get deleted.
 
 | Extension | Replaced by |
 |-----------|-------------|
