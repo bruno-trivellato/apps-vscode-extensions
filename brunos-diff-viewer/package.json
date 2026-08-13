@@ -1,0 +1,44 @@
+{
+  "name": "brunos-diff-viewer",
+  "displayName": "Bruno's Diff Viewer",
+  "description": "Opens .diff and .patch files with green added lines and red removed lines, instead of plain text.",
+  "version": "0.0.1",
+  "publisher": "brunotrivellato",
+  "engines": {
+    "vscode": "^1.75.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/bruno-trivellato/apps-vscode-extensions",
+    "directory": "brunos-diff-viewer"
+  },
+  "activationEvents": [],
+  "main": "./extension.js",
+  "contributes": {
+    "customEditors": [
+      {
+        "viewType": "brunosDiffViewer.editor",
+        "displayName": "Bruno's Diff Viewer",
+        "selector": [
+          {
+            "filenamePattern": "*.diff"
+          },
+          {
+            "filenamePattern": "*.patch"
+          }
+        ],
+        "priority": "default"
+      }
+    ]
+  },
+  "scripts": {
+    "test": "mocha"
+  },
+  "devDependencies": {
+    "mocha": "^11.1.0"
+  }
+}

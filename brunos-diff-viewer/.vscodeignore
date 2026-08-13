@@ -1,0 +1,8 @@
+.vscode/**
+.gitignore
+sample.diff
+*.vsix
+test/**
+.mocharc.json
+package-lock.json
+**/*.map

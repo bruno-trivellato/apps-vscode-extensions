@@ -1,0 +1,31 @@
+diff --git a/src/greet.js b/src/greet.js
+index 8f2a1c3..b91d4e7 100644
+--- a/src/greet.js
++++ b/src/greet.js
+@@ -1,8 +1,10 @@
+-function greet(name) {
+-  return "Hello " + name;
++function greet(name, locale = "en") {
++  const hello = locale === "pt" ? "Olá" : "Hello";
++  return `${hello} ${name}`;
+ }
+
+ module.exports = { greet };
++// note: a line starting with -- inside a hunk is content, not a header
+diff --git a/README.md b/README.md
+index 1122334..5566778 100644
+--- a/README.md
++++ b/README.md
+@@ -3,3 +3,3 @@
+ ## Usage
+
+-    greet("world")
++    greet("mundo", "pt")
+diff --git a/old.txt b/old.txt
+deleted file mode 100644
+index e69de29..0000000
+--- a/old.txt
++++ /dev/null
+@@ -1,2 +0,0 @@
+-this file is gone
+-along with this line
