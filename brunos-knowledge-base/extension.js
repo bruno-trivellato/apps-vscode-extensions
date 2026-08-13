@@ -1,4 +1,4 @@
-// Bruno's Knowledge Base — one extension, one handler per file type.
+// Bruno's Knowledge Base Toolkit — one extension, one handler per file type.
 //
 // Each handler in renderers/ owns everything its file type needs: the custom
 // editor, plus any commands, keybindings or state that go with it. This file

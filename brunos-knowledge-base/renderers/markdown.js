@@ -711,7 +711,7 @@ class MarkdownEditorProvider {
       // an external https anchor: webviews hand these to the browser themselves,
       // and our click handlers deliberately ignore non-local hrefs
       `<div class="bmr-menu-foot">` +
-      `<span class="bmr-menu-name">Bruno's Knowledge Base <span class="bmr-menu-ver">v${VERSION}</span></span>` +
+      `<span class="bmr-menu-name">Bruno's Knowledge Base Toolkit <span class="bmr-menu-ver">v${VERSION}</span></span>` +
       `<a class="bmr-menu-info" href="${MARKETPLACE_URL}" title="About this extension">i</a>` +
       `</div>` +
       `</div>`

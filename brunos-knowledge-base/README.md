@@ -1,4 +1,4 @@
-# Bruno's Knowledge Base
+# Bruno's Knowledge Base Toolkit
 
 VSCode extension that opens knowledge-base files the way they are meant to be read, instead of as raw text.
 

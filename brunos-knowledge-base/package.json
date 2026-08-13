@@ -1,8 +1,8 @@
 {
   "name": "brunos-knowledge-base",
-  "displayName": "Bruno's Knowledge Base",
+  "displayName": "Bruno's Knowledge Base Toolkit",
   "description": "Opens knowledge-base files the way they are meant to be read: Markdown pre-rendered with mermaid diagrams, .diff and .patch coloured green and red.",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "publisher": "brunotrivellato",
   "engines": {
     "vscode": "^1.75.0"
@@ -70,7 +70,7 @@
       }
     ],
     "configuration": {
-      "title": "Bruno's Markdown Reader",
+      "title": "Bruno's Knowledge Base Toolkit",
       "properties": {
         "brunosMarkdownReader.showGitHeader": {
           "type": "boolean",
