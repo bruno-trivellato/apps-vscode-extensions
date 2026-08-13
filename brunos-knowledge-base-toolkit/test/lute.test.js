@@ -93,6 +93,23 @@ describe("lute ignores our image decoration", () => {
     );
   });
 
+  it("ignores the data-bmr-list names put on a cell's <ul>/<li> markers", () => {
+    // Bullets in a table cell are CSS hung off these names. Same bargain again:
+    // it only holds while Lute rebuilds the markdown from the marker text.
+    const md =
+      "| Topic | Events |\n|---|---|\n" +
+      "| `a.b` | <ul><li>[created](x.md)</li><li>deleted</li></ul> | \n";
+    const dom = lute.Md2VditorIRDOM(md);
+    const expected = lute.VditorIRDOM2Md(dom);
+    const named = dom.replace(/<span data-type="html-inline"/g,
+      '<span data-bmr-list="li-open" data-type="html-inline"');
+
+    assert.strictEqual(lute.VditorIRDOM2Md(named), expected);
+    assert.strictEqual(lute.VditorIRDOM2Md(lute.SpinVditorIRDOM(named)), expected);
+    assert.ok(expected.includes("<ul><li>[created](x.md)</li><li>deleted</li></ul>"),
+      "the cell's raw HTML is written back exactly as it was");
+  });
+
   it("keeps the raw tag reconstructable from the marker, not from src", () => {
     const dom = lute.Md2VditorIRDOM(docs["raw img in a table cell"]);
     const out = lute.VditorIRDOM2Md(decorate(dom));

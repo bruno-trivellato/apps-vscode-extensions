@@ -322,6 +322,44 @@ const EDIT_IMG_CSS = `
     height: auto !important;
   }`;
 
+// A markdown table cell cannot hold a real list, so the only way to write one
+// is raw HTML: <ul><li>a</li><li>b</li></ul>. Lute does not render that inside
+// a cell either. It splits the tags into html-inline marker spans and leaves
+// each item's text as a bare text node between them, and Vditor hides markers
+// unless the caret is in the node, so every item runs into the next.
+//
+// The spans ARE the document, same as with the pictures: Lute rebuilds the
+// markdown from them, so none of them may be moved, wrapped or dropped. The
+// list is therefore drawn entirely here, off the data-bmr-list name the webview
+// puts on each span:
+//
+//   <ul>, </ul>, </li>   a zero-height block, which breaks the cell's inline
+//                        flow into one anonymous block per item — that is the
+//                        line break, without a single element being added
+//   <li>                 carries the bullet as a ::before, so it is painted
+//                        rather than inserted, and stays out of textContent
+//
+// The caret entering a node gets the raw tag back, via .vditor-ir__node--expand,
+// so the HTML is still editable in place.
+const EDIT_LIST_CSS = `
+  .vditor-reset [data-bmr-list]:not(.vditor-ir__node--expand) > code {
+    font-size: 0 !important;
+    padding: 0 !important;
+    background: none !important;
+  }
+  .vditor-reset [data-bmr-list="ul-open"]:not(.vditor-ir__node--expand),
+  .vditor-reset [data-bmr-list="ul-close"]:not(.vditor-ir__node--expand),
+  .vditor-reset [data-bmr-list="li-close"]:not(.vditor-ir__node--expand) {
+    display: block;
+    height: 0;
+  }
+  .vditor-reset [data-bmr-list="li-open"]:not(.vditor-ir__node--expand)::before {
+    content: "•";
+    display: inline-block;
+    width: 1.1em;
+    opacity: .7;
+  }`;
+
 // Drag a column edge to set its width by hand. Shared by both views, because
 // the handles have to work the same way in each: they are free-floating
 // elements on <body>, positioned over each header cell's right edge from its
@@ -349,4 +387,4 @@ const RESIZE_CSS = `
   /* while dragging, stop the pointer selecting text under the cursor */
   body.bmr-colh-dragging { user-select: none; cursor: col-resize; }`;
 
-module.exports = { tableCss, editTableCss, FOLD_CSS, EDIT_FOLD_CSS, EDIT_IMG_CSS, RESIZE_CSS, TABLE_OVERFLOW_MODES, THEMES, PALETTES, themeCss, isDarkTheme };
+module.exports = { tableCss, editTableCss, FOLD_CSS, EDIT_FOLD_CSS, EDIT_IMG_CSS, EDIT_LIST_CSS, RESIZE_CSS, TABLE_OVERFLOW_MODES, THEMES, PALETTES, themeCss, isDarkTheme };

@@ -4,7 +4,7 @@ const fs = require("fs");
 const { execFile } = require("child_process");
 const MarkdownIt = require("markdown-it");
 const { resolveTarget, relTime, parseGitLog, merge3, resolveImgSrc } = require("../lib/util");
-const { tableCss, editTableCss, FOLD_CSS, EDIT_FOLD_CSS, EDIT_IMG_CSS, RESIZE_CSS, TABLE_OVERFLOW_MODES, THEMES, themeCss, isDarkTheme } = require("../lib/css");
+const { tableCss, editTableCss, FOLD_CSS, EDIT_FOLD_CSS, EDIT_IMG_CSS, EDIT_LIST_CSS, RESIZE_CSS, TABLE_OVERFLOW_MODES, THEMES, themeCss, isDarkTheme } = require("../lib/css");
 const { MODAL_CSS, READER_WRAP_CSS, HOVER_BTN_CSS, ZOOM_JS, EDIT_HOVER_JS } = require("../lib/diagram-zoom");
 
 const md = new MarkdownIt({ html: true, linkify: true, typographer: true });
@@ -787,6 +787,7 @@ ${themeCss(config.theme)}
   #bmr-vditor { flex: 1 1 0; min-height: 0; border: none; }
 ${editTableCss(config.tableOverflow, config.maxColumnWidth)}
 ${EDIT_IMG_CSS}
+${EDIT_LIST_CSS}
 ${config.resizableColumns ? RESIZE_CSS : ""}
 ${config.collapsibleHeadings ? EDIT_FOLD_CSS : ""}
 
@@ -1286,6 +1287,45 @@ ${LINK_TOOLTIP_JS}
     // so this runs right after, on the same event, before the browser paints.
     // Registered before installScrollKeep's restore on purpose, so the table is
     // back at full size by the time its scroll position is put back.
+    document.addEventListener('input', decorate);
+  })();
+
+  // ---- bullet lists inside table cells (edit mode) -------------------------
+  // A cell that holds <ul><li>a</li><li>b</li></ul> shows as "ab" here: Lute
+  // turns each tag into an html-inline marker span and leaves the item text as
+  // a bare text node between them, and Vditor hides the markers, so the items
+  // touch. The bullets and the line breaks are drawn in CSS (EDIT_LIST_CSS);
+  // all this does is name each span, because only the literal text inside its
+  // <code> says which tag it is.
+  //
+  // Nothing here adds, moves or removes an element, for the same reason the
+  // pictures don't: Lute rebuilds the file from these spans. An attribute is
+  // inert to it, and a test pins that down.
+  //
+  // Only cells, deliberately. A raw <ul> outside a table is an HTML block,
+  // which Lute renders as a real list already.
+  (function installLists() {
+    const root = () => document.querySelector('.vditor-ir .vditor-reset');
+    const KIND = { '<ul>': 'ul-open', '</ul>': 'ul-close', '<li>': 'li-open', '</li>': 'li-close' };
+
+    function decorate() {
+      const r = root();
+      if (!r) return;
+      const spans = r.querySelectorAll('td span[data-type="html-inline"], th span[data-type="html-inline"]');
+      for (const node of spans) {
+        if (node.hasAttribute('data-bmr-list')) continue;
+        const code = node.querySelector('code');
+        if (!code) continue;
+        const kind = KIND[code.textContent.trim().toLowerCase()];
+        if (kind) node.setAttribute('data-bmr-list', kind);
+      }
+    }
+
+    const startLists = setInterval(() => { if (root()) { clearInterval(startLists); decorate(); } }, 120);
+
+    // Bubble phase and same tick, like the pictures: SpinVditorIRDOM hands back
+    // a fresh block on every keystroke, and a list that unwraps and rewraps a
+    // frame later changes the row height, which makes the table jump.
     document.addEventListener('input', decorate);
   })();
 

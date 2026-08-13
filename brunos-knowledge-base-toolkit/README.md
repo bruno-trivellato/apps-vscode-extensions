@@ -49,6 +49,7 @@ This is a spike, so it's worth trying but expectations should stay low:
 - The formatting toolbar is Vditor's own, hidden behind the **¶ Formatting** button so it stays out of the way.
 - It runs under a looser CSP than the reader. It needs `'unsafe-eval'` for Vditor's bundled mermaid/markmap, plus a `blob:` worker for graphviz. The reader keeps the strict policy.
 - Vditor's assets are vendored under `media/vditor`, for the same reason mermaid is: the webview CSP blocks CDNs.
+- A table cell holding a raw `<ul><li>…</li></ul>` shows as a real bullet list. Lute keeps those tags as marker spans and leaves the item text loose between them, which is why the items used to run together. The bullets and the line breaks are pure CSS, hung off a name put on each span. No element is added, so the cell is written back to the file exactly as it was. Put the caret in a tag and the raw HTML comes back, editable.
 - The fullscreen diagram button is a single floating element in `<body>`, not something added next to the diagram. Vditor renders mermaid by replacing the `innerHTML` of `.language-mermaid`, and Lute reads that same DOM back to rebuild the markdown that gets written to the file. Wrapping the diagram there could corrupt the document, and anything placed inside it is destroyed on the next re-render. So the button only reads bounding boxes and never touches the editor's DOM. A test enforces this.
 
 ## Diff Viewer
