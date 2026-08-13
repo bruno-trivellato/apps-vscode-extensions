@@ -1,0 +1,171 @@
+{
+  "name": "brunos-knowledge-base",
+  "displayName": "Bruno's Knowledge Base",
+  "description": "Opens knowledge-base files the way they are meant to be read: Markdown pre-rendered with mermaid diagrams, .diff and .patch coloured green and red.",
+  "version": "0.1.0",
+  "publisher": "brunotrivellato",
+  "engines": {
+    "vscode": "^1.75.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/bruno-trivellato/apps-vscode-extensions",
+    "directory": "brunos-knowledge-base"
+  },
+  "activationEvents": [],
+  "main": "./extension.js",
+  "contributes": {
+    "customEditors": [
+      {
+        "viewType": "brunosMarkdownReader.editor",
+        "displayName": "Bruno's Markdown Reader",
+        "selector": [
+          {
+            "filenamePattern": "*.md"
+          }
+        ],
+        "priority": "default"
+      },
+      {
+        "viewType": "brunosDiffViewer.editor",
+        "displayName": "Bruno's Diff Viewer",
+        "selector": [
+          {
+            "filenamePattern": "*.diff"
+          },
+          {
+            "filenamePattern": "*.patch"
+          }
+        ],
+        "priority": "default"
+      }
+    ],
+    "commands": [
+      {
+        "command": "brunosMarkdownReader.openLink",
+        "title": "Open"
+      },
+      {
+        "command": "brunosMarkdownReader.openLinkToSide",
+        "title": "Open to the Side"
+      },
+      {
+        "command": "brunosMarkdownReader.copyLinkPath",
+        "title": "Copy Link Path"
+      },
+      {
+        "command": "brunosMarkdownReader.escapeToPreview",
+        "title": "Back to Preview (Bruno's Markdown Reader)"
+      }
+    ],
+    "keybindings": [
+      {
+        "command": "brunosMarkdownReader.escapeToPreview",
+        "key": "escape",
+        "when": "brunosMarkdownReader.canEscapeToPreview && editorTextFocus && editorLangId == markdown && !editorReadonly && !editorHasSelection && !editorHasMultipleSelections && !suggestWidgetVisible && !inlineSuggestionVisible && !parameterHintsVisible && !renameInputVisible && !findWidgetVisible && !referenceSearchVisible && !inSnippetMode"
+      }
+    ],
+    "configuration": {
+      "title": "Bruno's Markdown Reader",
+      "properties": {
+        "brunosMarkdownReader.showGitHeader": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show the git header (last commit + file history) at the top of the rendered view."
+        },
+        "brunosMarkdownReader.historyExpanded": {
+          "type": "boolean",
+          "default": false,
+          "description": "Start the commit History panel expanded instead of collapsed."
+        },
+        "brunosMarkdownReader.doubleEscToPreview": {
+          "type": "boolean",
+          "default": true,
+          "description": "When editing a file opened from the reader, press Esc twice to return to preview."
+        },
+        "brunosMarkdownReader.editMode": {
+          "type": "boolean",
+          "default": false,
+          "description": "BETA: Notion-like experience. Replace the rendered reader with the Vditor instant-render (IR) editor, editing the file in place."
+        },
+        "brunosMarkdownReader.collapsibleHeadings": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show a fold arrow next to each heading in the reader, to collapse everything under it. Reader only. Folds reset when the file is reopened."
+        },
+        "brunosMarkdownReader.resizableColumns": {
+          "type": "boolean",
+          "default": true,
+          "description": "EXPERIMENTAL: drag the divider in a table's header row to set a column's width by hand. A resized table wraps its cells instead of growing. Widths are per session and reset when the file is reopened."
+        },
+        "brunosMarkdownReader.maxColumnWidth": {
+          "type": "number",
+          "default": 420,
+          "minimum": 0,
+          "description": "How wide a table column may get, in pixels, before its text wraps. Without a cap a long cell stretches its column across the whole pane on one line. 0 turns the cap off. A single inline code span longer than this still stays whole, widening its column past the cap."
+        },
+        "brunosMarkdownReader.tableOverflow": {
+          "type": "string",
+          "enum": [
+            "center",
+            "left"
+          ],
+          "default": "center",
+          "enumDescriptions": [
+            "Grow the table both ways from the centre of the page.",
+            "Keep the table's left edge on the text column and grow to the right only."
+          ],
+          "description": "How a table wider than the text column grows. Applies to both the reader and edit mode."
+        },
+        "brunosMarkdownReader.theme": {
+          "type": "string",
+          "enum": [
+            "auto",
+            "light",
+            "dark"
+          ],
+          "default": "auto",
+          "enumDescriptions": [
+            "Follow VSCode, which follows your system theme.",
+            "Always render light, whatever VSCode is set to.",
+            "Always render dark, whatever VSCode is set to."
+          ],
+          "description": "Which palette the reader paints itself with. Applies to the page, mermaid diagrams and code highlighting, in both the reader and edit mode."
+        }
+      }
+    },
+    "menus": {
+      "webview/context": [
+        {
+          "command": "brunosMarkdownReader.openLink",
+          "when": "webviewSection == 'link'",
+          "group": "navigation@1"
+        },
+        {
+          "command": "brunosMarkdownReader.openLinkToSide",
+          "when": "webviewSection == 'link'",
+          "group": "navigation@2"
+        },
+        {
+          "command": "brunosMarkdownReader.copyLinkPath",
+          "when": "webviewSection == 'link'",
+          "group": "9_cutcopypaste@1"
+        }
+      ]
+    }
+  },
+  "scripts": {
+    "test": "mocha"
+  },
+  "dependencies": {
+    "markdown-it": "^14.1.0"
+  },
+  "devDependencies": {
+    "mocha": "^11.1.0",
+    "vditor": "^3.11.3"
+  }
+}
