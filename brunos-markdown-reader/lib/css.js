@@ -7,6 +7,105 @@
 //   "left"   keeps its left edge on the text column and grows right only
 const TABLE_OVERFLOW_MODES = ["center", "left"];
 
+// Which palette the reader paints itself with.
+//   "auto"  follow VSCode, which itself follows the system theme
+//   "light" / "dark" force one, whatever VSCode is set to
+const THEMES = ["auto", "light", "dark"];
+
+// Forcing a theme means repainting, not relabelling.
+//
+// Every colour in this extension is a `var(--vscode-*)` with a fallback, so in
+// "auto" we inherit VSCode's own palette and there is nothing to do. Forcing is
+// different: those variables are still whatever VSCode set, so telling Vditor
+// and mermaid "you are dark now" would leave dark code blocks on a white page.
+// So a forced theme redefines the variables the extension actually reads.
+//
+// Only the 19 variables used anywhere in this codebase are listed. Keep this in
+// step with the code: a new `var(--vscode-x)` that is not here falls back to its
+// own literal, which is the one colour guaranteed not to match a forced theme.
+// `grep -oh -- "--vscode-[a-zA-Z0-9-]*" extension.js lib/*.js | sort -u` lists them.
+//
+// Values track VSCode's own Dark Modern and Light Modern, so a forced theme
+// looks like a theme the user already knows rather than something invented here.
+const PALETTES = {
+  dark: {
+    "editor-background": "#1f1f1f",
+    "editor-foreground": "#cccccc",
+    "panel-border": "#3c3c3c",
+    "textCodeBlock-background": "#2a2a2a",
+    "list-hoverBackground": "#2a2d2e",
+    "focusBorder": "#0078d4",
+    "editorWidget-background": "#202020",
+    "descriptionForeground": "#9d9d9d",
+    "textLink-foreground": "#4daafc",
+    "input-background": "#313131",
+    "input-foreground": "#cccccc",
+    "input-border": "#3c3c3c",
+    "editorHoverWidget-background": "#202020",
+    "editorHoverWidget-foreground": "#cccccc",
+    "editorHoverWidget-border": "#454545",
+    "editorError-foreground": "#f85149",
+    "button-background": "#0078d4",
+    "button-secondaryBackground": "#313131",
+    "button-secondaryForeground": "#cccccc",
+  },
+  light: {
+    "editor-background": "#ffffff",
+    "editor-foreground": "#3b3b3b",
+    "panel-border": "#d4d4d4",
+    "textCodeBlock-background": "#f0f0f0",
+    "list-hoverBackground": "#f2f2f2",
+    "focusBorder": "#0078d4",
+    "editorWidget-background": "#f8f8f8",
+    "descriptionForeground": "#767676",
+    "textLink-foreground": "#0f6cbd",
+    "input-background": "#ffffff",
+    "input-foreground": "#3b3b3b",
+    "input-border": "#cecece",
+    "editorHoverWidget-background": "#f8f8f8",
+    "editorHoverWidget-foreground": "#3b3b3b",
+    "editorHoverWidget-border": "#cecece",
+    "editorError-foreground": "#e51400",
+    "button-background": "#0078d4",
+    "button-secondaryBackground": "#e5e5e5",
+    "button-secondaryForeground": "#3b3b3b",
+  },
+};
+
+// The override block for a forced theme, empty for "auto".
+//
+// Emitted on :root, and our <style> comes after the one VSCode injects, so
+// equal specificity resolves on order and ours wins. `color-scheme` is what
+// stops the browser painting white scrollbars and form controls on a dark page.
+function themeCss(theme) {
+  const palette = PALETTES[theme];
+  if (!palette) return "";
+  const vars = Object.entries(palette)
+    .map(([k, v]) => `    --vscode-${k}: ${v};`)
+    .join("\n");
+  return `
+  :root {
+    color-scheme: ${theme};
+${vars}
+  }
+  /* VSCode paints the webview's body itself. Redefining the variable only helps
+     if its own rule reads the variable rather than an inlined colour, so set
+     both here and do not depend on which it does. */
+  body {
+    background-color: ${palette["editor-background"]};
+    color: ${palette["editor-foreground"]};
+  }`;
+}
+
+// Whether a resolved theme paints dark. "auto" has no answer here: only the
+// webview knows what VSCode is, so it is decided in the page. Returns null so a
+// caller cannot mistake "follow VSCode" for "light".
+function isDarkTheme(theme) {
+  if (theme === "dark") return true;
+  if (theme === "light") return false;
+  return null;
+}
+
 // margin-left:50% puts the left edge on the centre of the containing block,
 // then the transform pulls it back by half its own width. Both are needed:
 // margin-left alone just shoves the table right.
@@ -250,4 +349,4 @@ const RESIZE_CSS = `
   /* while dragging, stop the pointer selecting text under the cursor */
   body.bmr-colh-dragging { user-select: none; cursor: col-resize; }`;
 
-module.exports = { tableCss, editTableCss, FOLD_CSS, EDIT_FOLD_CSS, EDIT_IMG_CSS, RESIZE_CSS, TABLE_OVERFLOW_MODES };
+module.exports = { tableCss, editTableCss, FOLD_CSS, EDIT_FOLD_CSS, EDIT_IMG_CSS, RESIZE_CSS, TABLE_OVERFLOW_MODES, THEMES, PALETTES, themeCss, isDarkTheme };

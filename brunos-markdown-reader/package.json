@@ -2,7 +2,7 @@
   "name": "brunos-markdown-reader",
   "displayName": "Bruno's Markdown Reader",
   "description": "Opens Markdown files pre-rendered (reading mode), with mermaid diagram support and a beta Notion-like editing experience.",
-  "version": "0.0.30",
+  "version": "0.0.31",
   "publisher": "brunotrivellato",
   "engines": {
     "vscode": "^1.75.0"
@@ -107,6 +107,21 @@
             "Keep the table's left edge on the text column and grow to the right only."
           ],
           "description": "How a table wider than the text column grows. Applies to both the reader and edit mode."
+        },
+        "brunosMarkdownReader.theme": {
+          "type": "string",
+          "enum": [
+            "auto",
+            "light",
+            "dark"
+          ],
+          "default": "auto",
+          "enumDescriptions": [
+            "Follow VSCode, which follows your system theme.",
+            "Always render light, whatever VSCode is set to.",
+            "Always render dark, whatever VSCode is set to."
+          ],
+          "description": "Which palette the reader paints itself with. Applies to the page, mermaid diagrams and code highlighting, in both the reader and edit mode."
         }
       }
     },

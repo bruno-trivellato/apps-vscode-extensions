@@ -4,7 +4,7 @@ const fs = require("fs");
 const { execFile } = require("child_process");
 const MarkdownIt = require("markdown-it");
 const { resolveTarget, relTime, parseGitLog, merge3, resolveImgSrc } = require("./lib/util");
-const { tableCss, editTableCss, FOLD_CSS, EDIT_FOLD_CSS, EDIT_IMG_CSS, RESIZE_CSS, TABLE_OVERFLOW_MODES } = require("./lib/css");
+const { tableCss, editTableCss, FOLD_CSS, EDIT_FOLD_CSS, EDIT_IMG_CSS, RESIZE_CSS, TABLE_OVERFLOW_MODES, THEMES, themeCss, isDarkTheme } = require("./lib/css");
 
 const md = new MarkdownIt({ html: true, linkify: true, typographer: true });
 
@@ -97,6 +97,9 @@ function getConfig() {
     // 0 disables the cap. Anything smaller than a cap that could hold a word is
     // noise, so a positive value is floored rather than trusted.
     maxColumnWidth: Math.max(0, Math.round(Number(c.get("maxColumnWidth", 420)) || 0)),
+    // "auto" follows VSCode, which follows the system theme. An unknown value
+    // falls back to auto rather than to a hardcoded side.
+    theme: THEMES.includes(c.get("theme", "auto")) ? c.get("theme", "auto") : "auto",
   };
 }
 
@@ -143,7 +146,18 @@ const MENU_FOOT_CSS = `
     border: 1px solid var(--vscode-input-border, #8886);
     border-radius: 3px;
   }
-  .bmr-menu-num input:focus { outline: 1px solid var(--vscode-focusBorder, #8888); }`;
+  .bmr-menu-num input:focus { outline: 1px solid var(--vscode-focusBorder, #8888); }
+  /* A select row, for a setting with more than two values. Shares the number
+     row's geometry so the controls stay in one column down the right edge. */
+  .bmr-menu-sel select {
+    flex: none; width: 84px; cursor: pointer;
+    padding: 1px 4px; font: inherit; font-size: 12px;
+    color: var(--vscode-input-foreground, inherit);
+    background: var(--vscode-input-background, #8882);
+    border: 1px solid var(--vscode-input-border, #8886);
+    border-radius: 3px;
+  }
+  .bmr-menu-sel select:focus { outline: 1px solid var(--vscode-focusBorder, #8888); }`;
 
 // ---- link hover tooltip -----------------------------------------------------
 // Shared by the reader and edit mode. They locate links differently, so each
@@ -681,6 +695,19 @@ class MarkdownEditorProvider {
       `<span>Max column width</span>` +
       `<input type="number" data-key="maxColumnWidth" min="0" step="20" value="${config.maxColumnWidth}">` +
       `</label>` +
+      // three values, so neither a checkbox nor a number: Auto follows VSCode,
+      // the other two force a palette whatever VSCode is set to
+      `<label class="bmr-menu-item bmr-menu-sel" title="Auto follows VSCode, which follows your system theme.">` +
+      `<span>Theme</span>` +
+      `<select data-key="theme">` +
+      THEMES.map(
+        (t) =>
+          `<option value="${t}"${config.theme === t ? " selected" : ""}>${
+            t.charAt(0).toUpperCase() + t.slice(1)
+          }</option>`
+      ).join("") +
+      `</select>` +
+      `</label>` +
       // an external https anchor: webviews hand these to the browser themselves,
       // and our click handlers deliberately ignore non-local hrefs
       `<div class="bmr-menu-foot">` +
@@ -747,6 +774,8 @@ class MarkdownEditorProvider {
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <link rel="stylesheet" href="${cdn}/dist/index.css">
 <style>
+  /* first, so a forced theme's palette is in place before anything reads it */
+${themeCss(config.theme)}
   html, body { height: 100%; margin: 0; }
   /* our header on top, the editor taking whatever is left */
   body {
@@ -909,8 +938,12 @@ ${menu}
   const INITIAL = ${JSON.stringify(source)};
   const DOC_DIR = ${JSON.stringify(docDir)};
   const DOC_BASE = ${JSON.stringify(docBase)};
-  const isDark = document.body.classList.contains('vscode-dark') ||
-    document.body.classList.contains('vscode-high-contrast');
+  // null means "auto": ask VSCode. A forced theme has already repainted the
+  // palette in CSS, so this is what tells Vditor, hljs and mermaid to match it.
+  const FORCED_DARK = ${JSON.stringify(isDarkTheme(config.theme))};
+  const isDark = FORCED_DARK !== null ? FORCED_DARK
+    : document.body.classList.contains('vscode-dark') ||
+      document.body.classList.contains('vscode-high-contrast');
 
   let ready = false;
   let saveTimer = null;
@@ -1085,6 +1118,12 @@ ${LINK_TOOLTIP_JS}
         box.value = value;
         flush(getEditor());
         vscodeApi.postMessage({ type: 'setConfig', key: box.dataset.key, value });
+      });
+    });
+    menu.querySelectorAll('select[data-key]').forEach((sel) => {
+      sel.addEventListener('change', () => {
+        flush(getEditor());
+        vscodeApi.postMessage({ type: 'setConfig', key: sel.dataset.key, value: sel.value });
       });
     });
   }
@@ -1498,6 +1537,8 @@ ${RESIZE_JS}
   content="default-src 'none'; img-src ${cspSource} https: data:; style-src ${cspSource} 'unsafe-inline'; script-src ${cspSource} 'unsafe-inline'; font-src ${cspSource};">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <style>
+  /* first, so a forced theme's palette is in place before anything reads it */
+${themeCss(config.theme)}
   body {
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
     line-height: 1.6;
@@ -1725,6 +1766,11 @@ ${LINK_TOOLTIP_JS}
         vscodeApi.postMessage({ type: 'setConfig', key: box.dataset.key, value });
       });
     });
+    menu.querySelectorAll('select[data-key]').forEach((sel) => {
+      sel.addEventListener('change', () => {
+        vscodeApi.postMessage({ type: 'setConfig', key: sel.dataset.key, value: sel.value });
+      });
+    });
   })();
 
   // git header: toggle history panel + copy commit hash on click
@@ -1748,8 +1794,12 @@ ${LINK_TOOLTIP_JS}
     });
   })();
 
-  const isDark = document.body.classList.contains('vscode-dark') ||
-    document.querySelector('body')?.dataset?.vscodeThemeKind?.includes('dark');
+  // null means "auto": ask VSCode. A forced theme has already repainted the
+  // palette in CSS, so this is what tells mermaid to match it.
+  const FORCED_DARK = ${JSON.stringify(isDarkTheme(config.theme))};
+  const isDark = FORCED_DARK !== null ? FORCED_DARK
+    : document.body.classList.contains('vscode-dark') ||
+      document.querySelector('body')?.dataset?.vscodeThemeKind?.includes('dark');
 
   let modalOpen = false;
 

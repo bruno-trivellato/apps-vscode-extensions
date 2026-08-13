@@ -1,5 +1,5 @@
 const assert = require("assert");
-const { tableCss, editTableCss, FOLD_CSS, EDIT_FOLD_CSS, TABLE_OVERFLOW_MODES } = require("../lib/css");
+const { tableCss, editTableCss, FOLD_CSS, EDIT_FOLD_CSS, TABLE_OVERFLOW_MODES, THEMES, PALETTES, themeCss, isDarkTheme } = require("../lib/css");
 
 // default mode, so the existing expectations keep describing "center"
 const TABLE_CSS = tableCss("center");
@@ -265,5 +265,78 @@ describe("maxColumnWidth setting", () => {
     for (const build of [tableCss, editTableCss]) {
       assert.match(build("center", 420), /white-space:\s*nowrap/);
     }
+  });
+});
+
+// Theme override. "auto" must stay a true no-op: the whole extension is written
+// against var(--vscode-*), so following VSCode means emitting nothing at all.
+describe("theme setting", () => {
+  it("offers exactly auto, light and dark", () => {
+    assert.deepStrictEqual(THEMES, ["auto", "light", "dark"]);
+  });
+
+  it("emits nothing for auto, so VSCode's own palette shows through", () => {
+    assert.strictEqual(themeCss("auto"), "");
+  });
+
+  it("emits nothing for an unknown theme rather than guessing a side", () => {
+    assert.strictEqual(themeCss("solarized"), "");
+    assert.strictEqual(themeCss(undefined), "");
+  });
+
+  for (const theme of ["light", "dark"]) {
+    it(`repaints the palette for ${theme}`, () => {
+      const css = themeCss(theme);
+      assert.match(css, /--vscode-editor-background:/);
+      assert.match(css, /--vscode-editor-foreground:/);
+    });
+
+    // Without this the browser paints white scrollbars and form controls on a
+    // dark page, since VSCode's own color-scheme still says light.
+    it(`declares color-scheme for ${theme}`, () => {
+      assert.match(themeCss(theme), new RegExp(`color-scheme:\\s*${theme}`));
+    });
+
+    // VSCode paints body itself, and may inline the colour instead of reading
+    // the variable, so the override cannot rely on the variable alone.
+    it(`paints body explicitly for ${theme}`, () => {
+      const css = themeCss(theme);
+      const body = css.slice(css.indexOf("body {"));
+      assert.match(body, /background-color:\s*#[0-9a-f]{6}/i);
+      assert.match(body, /color:\s*#[0-9a-f]{6}/i);
+    });
+  }
+
+  // A var used in the code but missing from a palette silently falls back to its
+  // own literal, which is the one colour guaranteed to clash with a forced theme.
+  it("covers the same variables in both palettes", () => {
+    assert.deepStrictEqual(
+      Object.keys(PALETTES.light).sort(),
+      Object.keys(PALETTES.dark).sort()
+    );
+  });
+
+  it("gives every variable a real colour in both palettes", () => {
+    for (const [name, palette] of Object.entries(PALETTES)) {
+      for (const [key, value] of Object.entries(palette)) {
+        assert.match(value, /^#[0-9a-f]{6}$/i, `${name}.${key} is ${value}`);
+      }
+    }
+  });
+
+  it("does not paint light and dark the same", () => {
+    assert.notStrictEqual(
+      PALETTES.light["editor-background"],
+      PALETTES.dark["editor-background"]
+    );
+  });
+
+  // null, not false: only the webview knows what VSCode is, so "auto" has no
+  // answer here and must not be mistaken for "light".
+  it("resolves darkness, leaving auto undecided", () => {
+    assert.strictEqual(isDarkTheme("dark"), true);
+    assert.strictEqual(isDarkTheme("light"), false);
+    assert.strictEqual(isDarkTheme("auto"), null);
+    assert.strictEqual(isDarkTheme("nonsense"), null);
   });
 });
